@@ -15,6 +15,13 @@
       "when": 1714608000000,
       "tag": "0001_unique_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1714694400000,
+      "tag": "0002_ai_personalization_and_variants",
+      "breakpoints": true
     }
   ]
 }

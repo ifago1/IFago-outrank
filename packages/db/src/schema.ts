@@ -25,6 +25,8 @@ export const businesses = pgTable(
     googleRating: numeric("google_rating", { precision: 3, scale: 2 }),
     reviewsCount: integer("reviews_count"),
     rawPlacesData: jsonb("raw_places_data"),
+    personalObservation: text("personal_observation"),
+    personalObservationSource: text("personal_observation_source"),
     discoveredAt: timestamp("discovered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -80,6 +82,19 @@ export const sequenceSteps = pgTable("sequence_steps", {
   bodyTemplate: text("body_template").notNull(),
 });
 
+export const sequenceStepVariants = pgTable("sequence_step_variants", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  stepId: uuid("step_id")
+    .notNull()
+    .references(() => sequenceSteps.id, { onDelete: "cascade" }),
+  /** Human-readable label, e.g. "A", "B", "short-subject". */
+  label: text("label").notNull(),
+  /** Selection weight (1-100). Variants with higher weight are picked more often. */
+  weight: integer("weight").notNull().default(1),
+  subjectTemplate: text("subject_template").notNull(),
+  bodyTemplate: text("body_template").notNull(),
+});
+
 export const campaignLeads = pgTable(
   "campaign_leads",
   {
@@ -110,6 +125,9 @@ export const emailsSent = pgTable("emails_sent", {
     .notNull()
     .references(() => campaignLeads.id, { onDelete: "cascade" }),
   stepOrder: integer("step_order").notNull(),
+  variantId: uuid("variant_id").references(() => sequenceStepVariants.id, {
+    onDelete: "set null",
+  }),
   subject: text("subject").notNull(),
   body: text("body").notNull(),
   messageId: text("message_id"),
@@ -135,6 +153,8 @@ export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type Campaign = typeof campaigns.$inferSelect;
 export type SequenceStep = typeof sequenceSteps.$inferSelect;
+export type SequenceStepVariant = typeof sequenceStepVariants.$inferSelect;
+export type NewSequenceStepVariant = typeof sequenceStepVariants.$inferInsert;
 export type CampaignLead = typeof campaignLeads.$inferSelect;
 export type EmailSent = typeof emailsSent.$inferSelect;
 export type Unsubscribe = typeof unsubscribes.$inferSelect;

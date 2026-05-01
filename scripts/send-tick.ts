@@ -14,6 +14,7 @@ import { parseArgs } from "node:util";
 import { closeDb, getDb } from "@outreach/db";
 import { MockMailer, PostmarkMailer, type Mailer } from "@outreach/mailer";
 import { runSendTick, DEFAULT_SEND_WINDOW } from "@outreach/sequencer";
+import { AnthropicPersonalizer } from "@outreach/ai-personalization";
 
 interface CliOptions {
   dryRun: boolean;
@@ -91,6 +92,11 @@ async function main(): Promise<void> {
   const db = getDb();
   const mailer = buildMailer(opts.dryRun);
 
+  const anthropicKey = process.env["ANTHROPIC_API_KEY"];
+  const personalizer = anthropicKey
+    ? new AnthropicPersonalizer({ apiKey: anthropicKey })
+    : undefined;
+
   const result = await runSendTick({
     db,
     mailer,
@@ -106,6 +112,7 @@ async function main(): Promise<void> {
     window: buildWindow(),
     batchSize: opts.batchSize,
     dryRun: opts.dryRun,
+    personalizer,
   });
 
   console.log(

@@ -28,3 +28,6 @@ export type { ReplyMatch } from "./reply-matcher.js";
 
 export { buildPersonalObservation } from "./personalization.js";
 export type { ObservationInput } from "./personalization.js";
+
+export { pickWeighted } from "./variant-selector.js";
+export type { Weighted } from "./variant-selector.js";

@@ -20,13 +20,17 @@
     "score-websites": "tsx scripts/score-websites.ts",
     "seed-campaign": "tsx scripts/seed-campaign.ts",
     "assign-leads": "tsx scripts/assign-leads.ts",
-    "send-tick": "tsx scripts/send-tick.ts"
+    "send-tick": "tsx scripts/send-tick.ts",
+    "worker": "tsx scripts/worker.ts",
+    "schedule-ticks": "tsx scripts/schedule-ticks.ts"
   },
   "dependencies": {
+    "@outreach/ai-personalization": "workspace:*",
     "@outreach/db": "workspace:*",
     "@outreach/enrichment": "workspace:*",
     "@outreach/mailer": "workspace:*",
     "@outreach/places": "workspace:*",
+    "@outreach/queue": "workspace:*",
     "@outreach/sequencer": "workspace:*",
     "@outreach/templates": "workspace:*",
     "@outreach/website-quality": "workspace:*",

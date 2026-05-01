@@ -22,6 +22,9 @@ const FIELD_MASK = [
   "places.websiteUri",
   "places.rating",
   "places.userRatingCount",
+  // Up to 5 reviews per place. Powers AI personalization in the sequencer
+  // (without this the LLM has only rating + count to work with).
+  "places.reviews",
 ].join(",");
 
 export interface PlacesClientOptions {

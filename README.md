@@ -29,14 +29,18 @@ automatische opvolging en reply-detectie.
 │   ├── enrichment/             Website scraper + Hunter + MX validator
 │   ├── templates/              Mustache-style template engine + unsub tokens
 │   ├── mailer/                 Postmark SDK wrapper + MockMailer
-│   └── sequencer/              Pre-send guards + tick worker + reply matcher
+│   ├── ai-personalization/     Anthropic SDK — Claude-generated "personal observation"
+│   ├── queue/                  BullMQ wrapper (Redis) for distributed sends
+│   └── sequencer/              Pre-send guards + tick worker + reply matcher + variant selector
 ├── scripts/
 │   ├── discover.ts             Module 1 — Google Places ingest
 │   ├── score-websites.ts       Module 2 — audit homepages, set quality bucket
 │   ├── enrich.ts               Module 3 — find emails for businesses
 │   ├── seed-campaign.ts        Module 4 — create campaign + default sequence
 │   ├── assign-leads.ts         Module 4 — add contacts as leads
-│   └── send-tick.ts            Module 5 — run one pass of the sequencer
+│   ├── send-tick.ts            Module 5 — run one pass of the sequencer
+│   ├── worker.ts               BullMQ worker process (production: pm2/systemd)
+│   └── schedule-ticks.ts       Idempotent: register the recurring tick job
 ├── docker-compose.yml          Lokaal Postgres + Redis
 └── .env.example
 ```
@@ -130,6 +134,39 @@ Pages beschikbaar op http://localhost:3000:
 - **/stats** — Totalen, reply rate %, bounce rate %, per-campagne breakdown.
 - **/settings** — Env-var checklist (read-only): wat is er al geconfigureerd, wat ontbreekt.
 
+## Production: BullMQ worker
+
+Voor productie draai je niet `send-tick` als cron — je gebruikt BullMQ:
+
+```bash
+# Eenmalig op deploy: registreer de recurring tick (idempotent, default elke 5 min)
+pnpm schedule-ticks
+
+# Long-running worker process — supervise met systemd / pm2 / Render / Railway
+pnpm worker
+```
+
+De worker leest jobs uit Redis, runt de sequencer (zelfde guards/template/AI-stack als de CLI), en logt per-tick stats. `concurrency` staat default op 1 om de daglimiet te respecteren — verhoog via een env var alleen als je écht parallel wilt sturen vanuit meerdere pods.
+
+## A/B varianten
+
+Voeg een variant toe aan een sequence step (handmatig of via SQL):
+
+```sql
+INSERT INTO sequence_step_variants (step_id, label, weight, subject_template, body_template)
+VALUES
+  ('<step-uuid>', 'A — kort', 1, 'Vraag over {{business_name}}', '...'),
+  ('<step-uuid>', 'B — direct', 1, 'Snel iets bij {{business_name}}', '...');
+```
+
+De sequencer pakt automatisch een variant op (weighted random op `weight`). Zonder varianten valt het terug op de step's eigen `subject_template`/`body_template`. Per-variant performance staat op `/stats` onderaan.
+
+## AI personalisatie
+
+Met `ANTHROPIC_API_KEY` set roept de sequencer Claude (default `claude-opus-4-7`) aan om de `{{personal_observation}}` regel per business te schrijven. Het resultaat wordt gecached in `businesses.personal_observation` zodat we voor één business max één API-call doen, ongeacht hoeveel sequence steps er zijn. Zonder key valt alles terug op de heuristiek.
+
+Wil je goedkoper? Wijzig de model-string in `packages/ai-personalization/src/anthropic-personalizer.ts` van `claude-opus-4-7` naar `claude-haiku-4-5` — voor een-zin output is Haiku ruim voldoende.
+
 ## Tests
 
 ```bash
@@ -165,9 +202,9 @@ maken de upsert-paths in `enrich` en `assign-leads` idempotent.
 - ✅ **Module 7** — Unsubscribe-handling (RFC 8058)
 - ✅ **Module 8** — Dashboard
 - ✅ **Module 2** — Website-quality scoring (heuristieken; Lighthouse blijft als optionele upgrade)
-- ⬜ AI-personalisatie van `personal_observation` via Claude API
-- ⬜ A/B-testen op subject/body
-- ⬜ BullMQ voor distributed sends (huidige tick is single-process)
+- ✅ **AI-personalisatie** — Claude (`claude-opus-4-7`, default) genereert per-business observaties op basis van Google reviews; gecached op `businesses.personal_observation`. Heuristiek als fallback.
+- ✅ **A/B-testen** — `sequence_step_variants` tabel; sequencer kiest weighted-random per send; per-variant breakdown op `/stats`.
+- ✅ **BullMQ** — `packages/queue` + `pnpm worker` voor distributed sends. `pnpm schedule-ticks` registreert de recurring tick.
 
 ## Juridisch (lees vóór live versturen)
 

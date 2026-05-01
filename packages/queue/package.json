@@ -1,5 +1,5 @@
 {
-  "name": "@outreach/sequencer",
+  "name": "@outreach/queue",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,15 +9,13 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@outreach/ai-personalization": "workspace:*",
-    "@outreach/db": "workspace:*",
-    "@outreach/mailer": "workspace:*",
-    "@outreach/templates": "workspace:*",
-    "drizzle-orm": "^0.36.4"
+    "@outreach/sequencer": "workspace:*",
+    "bullmq": "^5.34.5",
+    "ioredis": "^5.4.2"
   },
   "devDependencies": {
     "typescript": "^5.6.2",

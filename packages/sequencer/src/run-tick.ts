@@ -5,18 +5,21 @@ import {
   campaigns,
   contacts,
   emailsSent,
+  sequenceStepVariants,
   sequenceSteps,
   unsubscribes,
   type Db,
 } from "@outreach/db";
 import type { Mailer } from "@outreach/mailer";
 import { render, signUnsubscribeToken } from "@outreach/templates";
+import type { AnthropicPersonalizer } from "@outreach/ai-personalization";
 import {
   preSendCheck,
   type SendWindow,
   type SkipReason,
 } from "./guards.js";
 import { buildPersonalObservation } from "./personalization.js";
+import { pickWeighted } from "./variant-selector.js";
 
 export interface RunTickConfig {
   db: Db;
@@ -38,6 +41,18 @@ export interface RunTickConfig {
   batchSize?: number;
   /** When true, evaluates everything but does not send / mutate state. */
   dryRun?: boolean;
+  /**
+   * Optional Claude-backed personalizer. When provided, the first time we
+   * send to a business we ask Claude to write a one-line observation and
+   * cache it on businesses.personal_observation. Subsequent steps reuse the
+   * cached value. Falls back to the heuristic on any error.
+   */
+  personalizer?: AnthropicPersonalizer | undefined;
+  /**
+   * Override Math.random — used by tests to make A/B variant selection
+   * deterministic.
+   */
+  random?: () => number;
 }
 
 export interface SendOutcome {
@@ -70,6 +85,8 @@ interface DueRow {
   businessCity: string | null;
   businessRating: string | null; // numeric -> string in pg
   businessReviewsCount: number | null;
+  businessRawData: unknown;
+  cachedObservation: string | null;
   campaignNiche: string | null;
   campaignName: string;
 }
@@ -180,13 +197,20 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
       if (first) inReplyTo = `<${first}>`;
     }
 
-    const observation = buildPersonalObservation({
-      businessName: row.businessName,
-      rating: row.businessRating ? Number(row.businessRating) : null,
-      reviewsCount: row.businessReviewsCount,
-      city: row.businessCity,
-      niche: row.campaignNiche,
-    });
+    // A/B variant selection (no variants → use the step itself)
+    const variants = await loadVariants(cfg.db, stepDef.id);
+    const random = cfg.random ?? Math.random;
+    const variant =
+      variants.length > 0
+        ? pickWeighted(
+            variants.map((v) => ({ item: v, weight: v.weight })),
+            random,
+          )
+        : null;
+    const subjectTemplate = variant?.subjectTemplate ?? stepDef.subjectTemplate;
+    const bodyTemplate = variant?.bodyTemplate ?? stepDef.bodyTemplate;
+
+    const observation = await resolveObservation(cfg, row);
 
     const unsubUrl = `${cfg.publicBaseUrl.replace(/\/$/, "")}/api/unsubscribe?t=${signUnsubscribeToken(row.email, cfg.unsubscribeSecret)}`;
 
@@ -198,10 +222,8 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
       unsubscribe_url: unsubUrl,
     };
 
-    const subject = render(stepDef.subjectTemplate, vars, {
-      onMissing: "blank",
-    });
-    const body = render(stepDef.bodyTemplate, vars, { onMissing: "blank" });
+    const subject = render(subjectTemplate, vars, { onMissing: "blank" });
+    const body = render(bodyTemplate, vars, { onMissing: "blank" });
 
     if (cfg.dryRun) {
       outcomes.push({
@@ -235,6 +257,7 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
       await cfg.db.insert(emailsSent).values({
         campaignLeadId: row.campaignLeadId,
         stepOrder: stepDef.stepOrder,
+        ...(variant ? { variantId: variant.id } : {}),
         subject,
         body,
         messageId: result.messageId,
@@ -309,6 +332,8 @@ async function fetchDueLeads(
       businessCity: businesses.city,
       businessRating: businesses.googleRating,
       businessReviewsCount: businesses.reviewsCount,
+      businessRawData: businesses.rawPlacesData,
+      cachedObservation: businesses.personalObservation,
       campaignNiche: campaigns.niche,
       campaignName: campaigns.name,
     })
@@ -409,5 +434,98 @@ async function firstMessageId(
 function addDays(d: Date, days: number): Date {
   const out = new Date(d);
   out.setDate(out.getDate() + days);
+  return out;
+}
+
+async function loadVariants(db: Db, stepId: string) {
+  return db
+    .select({
+      id: sequenceStepVariants.id,
+      label: sequenceStepVariants.label,
+      weight: sequenceStepVariants.weight,
+      subjectTemplate: sequenceStepVariants.subjectTemplate,
+      bodyTemplate: sequenceStepVariants.bodyTemplate,
+    })
+    .from(sequenceStepVariants)
+    .where(eq(sequenceStepVariants.stepId, stepId));
+}
+
+/**
+ * Resolve the personal_observation:
+ *   1. Cached on businesses.personal_observation → use as-is
+ *   2. cfg.personalizer set → call Claude, cache the result
+ *   3. Fall back to the heuristic (also cached so we don't keep retrying AI)
+ */
+async function resolveObservation(
+  cfg: RunTickConfig,
+  row: DueRow,
+): Promise<string> {
+  if (row.cachedObservation) return row.cachedObservation;
+
+  const heuristic = buildPersonalObservation({
+    businessName: row.businessName,
+    rating: row.businessRating ? Number(row.businessRating) : null,
+    reviewsCount: row.businessReviewsCount,
+    city: row.businessCity,
+    niche: row.campaignNiche,
+  });
+
+  if (!cfg.personalizer || cfg.dryRun) return heuristic;
+
+  try {
+    const reviewSnippets = extractReviewSnippets(row.businessRawData);
+    const result = await cfg.personalizer.generate({
+      businessName: row.businessName,
+      city: row.businessCity,
+      niche: row.campaignNiche,
+      rating: row.businessRating ? Number(row.businessRating) : null,
+      reviewsCount: row.businessReviewsCount,
+      reviewSnippets,
+    });
+    if (!result.text) return heuristic;
+    await cfg.db
+      .update(businesses)
+      .set({
+        personalObservation: result.text,
+        personalObservationSource: "ai",
+      })
+      .where(eq(businesses.id, row.businessId));
+    return result.text;
+  } catch {
+    // Cache the heuristic so we don't keep hammering the LLM on transient errors.
+    await cfg.db
+      .update(businesses)
+      .set({
+        personalObservation: heuristic,
+        personalObservationSource: "heuristic",
+      })
+      .where(eq(businesses.id, row.businessId));
+    return heuristic;
+  }
+}
+
+/**
+ * Best-effort extraction of short review-like text from the raw Places
+ * payload. The Places API only returns reviews when explicitly requested in
+ * the field mask (currently we don't), so this typically yields []; once we
+ * add `places.reviews` to the field mask in packages/places this becomes
+ * automatically populated.
+ */
+function extractReviewSnippets(raw: unknown): string[] {
+  if (!raw || typeof raw !== "object") return [];
+  const reviews = (raw as Record<string, unknown>)["reviews"];
+  if (!Array.isArray(reviews)) return [];
+  const out: string[] = [];
+  for (const r of reviews.slice(0, 5)) {
+    if (r && typeof r === "object") {
+      const text = (r as Record<string, unknown>)["text"];
+      if (typeof text === "string" && text.trim().length > 0) {
+        out.push(text);
+        continue;
+      }
+      const nested = (text as Record<string, unknown> | null)?.["text"];
+      if (typeof nested === "string") out.push(nested);
+    }
+  }
   return out;
 }
