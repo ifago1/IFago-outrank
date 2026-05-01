@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  businesses,
   campaignLeads,
   campaigns,
   emailsSent,
@@ -26,6 +27,15 @@ export default async function StatsPage() {
 
   const replyRate = t.sent > 0 ? (t.replied / t.sent) * 100 : 0;
   const bounceRate = t.sent > 0 ? (t.bounced / t.sent) * 100 : 0;
+
+  const obsTotals = await db
+    .select({
+      ai: sql<number>`(SELECT count(*)::int FROM ${businesses} WHERE ${businesses.personalObservationSource} = 'ai')`,
+      heuristic: sql<number>`(SELECT count(*)::int FROM ${businesses} WHERE ${businesses.personalObservationSource} = 'heuristic')`,
+      none: sql<number>`(SELECT count(*)::int FROM ${businesses} WHERE ${businesses.personalObservation} IS NULL)`,
+    })
+    .from(sql`(SELECT 1) as _t`);
+  const obs = obsTotals[0]!;
 
   const perCampaign = await db
     .select({
@@ -65,6 +75,30 @@ export default async function StatsPage() {
           label="Bounce rate"
           value={`${bounceRate.toFixed(1)}%`}
           sub={`${t.bounced} bounces`}
+        />
+      </section>
+
+      <h2 style={{ fontSize: "1.05rem", margin: "1.5rem 0 0.75rem" }}>
+        Personal observation cache
+      </h2>
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: "0.75rem",
+          marginBottom: "1.5rem",
+        }}
+      >
+        <Stat label="AI-generated" value={obs.ai} sub="Claude (cached)" />
+        <Stat
+          label="Heuristic fallback"
+          value={obs.heuristic}
+          sub="ANTHROPIC_API_KEY niet gezet of LLM faalde"
+        />
+        <Stat
+          label="Nog niet gegenereerd"
+          value={obs.none}
+          sub="Wordt op de eerste send aangemaakt"
         />
       </section>
 

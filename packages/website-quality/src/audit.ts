@@ -214,14 +214,6 @@ function normalizeUrl(input: string): string | null {
   }
 }
 
-function safeHost(input: string): string | null {
-  try {
-    return new URL(input).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }

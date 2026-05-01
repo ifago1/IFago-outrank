@@ -39,6 +39,9 @@ jobs:
       - name: Typecheck (root scripts)
         run: pnpm exec tsc --noEmit
 
+      - name: Lint (web)
+        run: pnpm --filter @outreach/web lint
+
       - name: Run tests
         run: pnpm -r test
 

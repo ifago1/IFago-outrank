@@ -30,7 +30,6 @@ export const runtime = "nodejs";
  * POSTMARK_INBOUND_WEBHOOK_SECRET. (Postmark itself doesn't sign webhooks.)
  */
 export async function POST(req: Request) {
-  const url = new URL(req.url);
   const expected = process.env["POSTMARK_INBOUND_WEBHOOK_SECRET"];
   if (!expected) {
     return NextResponse.json(
@@ -38,7 +37,7 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  if (url.searchParams.get("secret") !== expected) {
+  if (!isAuthorized(req, expected)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -161,4 +160,32 @@ function headersToMap(
   const m: Record<string, string> = {};
   for (const h of hs) m[h.Name.toLowerCase()] = h.Value;
   return m;
+}
+
+/**
+ * Accept the secret via:
+ *   - `Authorization: Bearer <secret>` (preferred — doesn't leak in logs)
+ *   - `?secret=<secret>` query param (fallback for setups that can't set
+ *     custom headers)
+ *
+ * Constant-time comparison via Buffer length+equality. Both branches use
+ * the same comparator.
+ */
+function isAuthorized(req: Request, expected: string): boolean {
+  const authHeader = req.headers.get("authorization") ?? "";
+  const headerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (headerToken && safeEqual(headerToken, expected)) return true;
+
+  const url = new URL(req.url);
+  const queryToken = url.searchParams.get("secret") ?? "";
+  return safeEqual(queryToken, expected);
+}
+
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
 }

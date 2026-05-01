@@ -61,9 +61,40 @@ export class PlacesClient {
 
   /**
    * Text Search against the Places API (New). Returns up to `pageSize`
-   * results (max 20) in a single call.
+   * results (max 20) per request. For larger result sets use
+   * {@link searchBusinessesAllPages}.
    */
   async searchBusinesses(opts: SearchOptions): Promise<PlaceResult[]> {
+    const { results } = await this.searchOnePage(opts);
+    return results;
+  }
+
+  /**
+   * Walk Google's pageToken pagination until exhausted or `maxPages` is
+   * reached. The Places API caps at 60 results across pages (3 pages of
+   * up to 20). Each page is a separate billable request.
+   */
+  async searchBusinessesAllPages(
+    opts: SearchOptions & { maxPages?: number },
+  ): Promise<PlaceResult[]> {
+    const maxPages = Math.max(1, Math.min(opts.maxPages ?? 3, 3));
+    const all: PlaceResult[] = [];
+    let pageToken: string | undefined;
+    for (let i = 0; i < maxPages; i++) {
+      const { results, nextPageToken } = await this.searchOnePage({
+        ...opts,
+        ...(pageToken ? { pageToken } : {}),
+      });
+      all.push(...results);
+      if (!nextPageToken) break;
+      pageToken = nextPageToken;
+    }
+    return all;
+  }
+
+  private async searchOnePage(
+    opts: SearchOptions & { pageToken?: string },
+  ): Promise<{ results: PlaceResult[]; nextPageToken: string | undefined }> {
     if (!opts.query.trim()) {
       throw new Error("query must be a non-empty string");
     }
@@ -83,13 +114,20 @@ export class PlacesClient {
         },
       };
     }
+    if (opts.pageToken) body["pageToken"] = opts.pageToken;
+
+    // Field mask must include nextPageToken when paginating, otherwise
+    // Google strips it from the response.
+    const fieldMask = opts.pageToken
+      ? `${FIELD_MASK},nextPageToken`
+      : `${FIELD_MASK},nextPageToken`;
 
     const res = await this.fetchImpl(TEXT_SEARCH_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": this.apiKey,
-        "X-Goog-FieldMask": FIELD_MASK,
+        "X-Goog-FieldMask": fieldMask,
       },
       body: JSON.stringify(body),
     });
@@ -104,9 +142,12 @@ export class PlacesClient {
       throw err;
     }
 
-    const json = (await res.json()) as { places?: RawPlace[] };
-    const places = json.places ?? [];
-    return places.map(normalizePlace);
+    const json = (await res.json()) as {
+      places?: RawPlace[];
+      nextPageToken?: string;
+    };
+    const results = (json.places ?? []).map(normalizePlace);
+    return { results, nextPageToken: json.nextPageToken };
   }
 }
 

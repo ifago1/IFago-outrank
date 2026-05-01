@@ -5,16 +5,16 @@
  * Runs one pass of the sequencer. Intended to be invoked by cron / a queue
  * worker every few minutes. Safe to run repeatedly.
  *
- * Required env: DATABASE_URL, POSTMARK_SERVER_TOKEN, FROM_EMAIL, FROM_NAME,
- *               PUBLIC_BASE_URL, UNSUBSCRIBE_SECRET.
- * Optional env: REPLY_TO_EMAIL, DAILY_SEND_LIMIT, SEND_WINDOW_START,
- *               SEND_WINDOW_END, SEND_WEEKDAYS.
+ * Env requirements are validated by @outreach/config; in --dry-run mode
+ * we relax the requirements so you can smoke-test without real Postmark
+ * credentials.
  */
 import { parseArgs } from "node:util";
 import { closeDb, getDb } from "@outreach/db";
 import { MockMailer, PostmarkMailer, type Mailer } from "@outreach/mailer";
 import { runSendTick, DEFAULT_SEND_WINDOW } from "@outreach/sequencer";
 import { AnthropicPersonalizer } from "@outreach/ai-personalization";
+import { loadConfigOrExit } from "@outreach/config";
 
 interface CliOptions {
   dryRun: boolean;
@@ -49,67 +49,45 @@ Options:
   };
 }
 
-function buildMailer(dryRun: boolean): Mailer {
-  if (dryRun) return new MockMailer();
-  const token = required("POSTMARK_SERVER_TOKEN");
-  const opts = {
-    serverToken: token,
-    from: required("FROM_EMAIL"),
-    fromName: process.env["FROM_NAME"] ?? "",
-    ...(process.env["REPLY_TO_EMAIL"]
-      ? { replyTo: process.env["REPLY_TO_EMAIL"] }
-      : {}),
-    defaultTag: "outreach",
-  };
-  return new PostmarkMailer(opts);
-}
-
-function required(name: string): string {
-  const v = process.env[name];
-  if (!v) {
-    console.error(`Missing required env: ${name}`);
-    process.exit(1);
-  }
-  return v;
-}
-
-function buildWindow() {
-  const start = Number(process.env["SEND_WINDOW_START"]);
-  const end = Number(process.env["SEND_WINDOW_END"]);
-  const weekdaysRaw = process.env["SEND_WEEKDAYS"];
-  const weekdays = weekdaysRaw
-    ? weekdaysRaw.split(",").map((s) => Number(s.trim())).filter((n) => n > 0)
-    : DEFAULT_SEND_WINDOW.weekdays;
-  return {
-    startHour: Number.isFinite(start) ? start : DEFAULT_SEND_WINDOW.startHour,
-    endHour: Number.isFinite(end) ? end : DEFAULT_SEND_WINDOW.endHour,
-    weekdays,
-  };
-}
-
 async function main(): Promise<void> {
   const opts = parseCliArgs();
+  const cfg = loadConfigOrExit("send-tick");
   const db = getDb();
-  const mailer = buildMailer(opts.dryRun);
+  const mailer: Mailer = opts.dryRun
+    ? new MockMailer()
+    : new PostmarkMailer({
+        serverToken: cfg.POSTMARK_SERVER_TOKEN,
+        from: cfg.FROM_EMAIL,
+        fromName: cfg.FROM_NAME,
+        ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
+        defaultTag: "outreach",
+      });
 
-  const anthropicKey = process.env["ANTHROPIC_API_KEY"];
-  const personalizer = anthropicKey
-    ? new AnthropicPersonalizer({ apiKey: anthropicKey })
+  const personalizer = cfg.ANTHROPIC_API_KEY
+    ? new AnthropicPersonalizer({
+        apiKey: cfg.ANTHROPIC_API_KEY,
+        ...(cfg.AI_MODEL ? { model: cfg.AI_MODEL } : {}),
+      })
     : undefined;
+
+  const window = {
+    startHour: cfg.SEND_WINDOW_START ?? DEFAULT_SEND_WINDOW.startHour,
+    endHour: cfg.SEND_WINDOW_END ?? DEFAULT_SEND_WINDOW.endHour,
+    weekdays: cfg.SEND_WEEKDAYS
+      ? cfg.SEND_WEEKDAYS.split(",").map((s) => Number(s.trim()))
+      : DEFAULT_SEND_WINDOW.weekdays,
+  };
 
   const result = await runSendTick({
     db,
     mailer,
-    fromEmail: process.env["FROM_EMAIL"] ?? "noreply@example.com",
-    fromName: process.env["FROM_NAME"] ?? "Outreach",
-    ...(process.env["REPLY_TO_EMAIL"]
-      ? { replyTo: process.env["REPLY_TO_EMAIL"] }
-      : {}),
-    publicBaseUrl: process.env["PUBLIC_BASE_URL"] ?? "http://localhost:3000",
-    unsubscribeSecret:
-      process.env["UNSUBSCRIBE_SECRET"] ?? "dev-only-insecure",
-    dailyLimit: Number(process.env["DAILY_SEND_LIMIT"] ?? "50"),
-    window: buildWindow(),
+    fromEmail: cfg.FROM_EMAIL,
+    fromName: cfg.FROM_NAME,
+    ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
+    publicBaseUrl: cfg.PUBLIC_BASE_URL,
+    unsubscribeSecret: cfg.UNSUBSCRIBE_SECRET,
+    dailyLimit: cfg.DAILY_SEND_LIMIT ?? 50,
+    window,
     batchSize: opts.batchSize,
     dryRun: opts.dryRun,
     personalizer,

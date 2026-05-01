@@ -11,8 +11,10 @@ import {
   closeRedis,
   scheduleRepeatingTick,
 } from "@outreach/queue";
+import { loadConfigOrExit } from "@outreach/config";
 
 async function main(): Promise<void> {
+  loadConfigOrExit("schedule-ticks");
   const { values } = parseArgs({
     options: {
       "every-ms": { type: "string", default: String(5 * 60 * 1000) },

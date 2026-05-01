@@ -5,7 +5,18 @@ import {
   type TickResult,
 } from "@outreach/sequencer";
 import { getRedisConnection } from "./connection.js";
+import { tryAcquire } from "./lock.js";
 import { TICK_QUEUE, type TickJobData } from "./queues.js";
+
+const TICK_LOCK_KEY = "outreach:tick-lock";
+
+const SKIPPED_BY_LOCK: TickResult = {
+  evaluated: 0,
+  sent: 0,
+  skipped: 0,
+  failed: 0,
+  outcomes: [],
+};
 
 export interface CreateTickWorkerOptions {
   /**
@@ -37,13 +48,33 @@ export function createTickWorker(opts: CreateTickWorkerOptions): Worker<TickJobD
     concurrency: opts.concurrency ?? 1,
   };
 
+  const redis = getRedisConnection();
   const worker = new Worker<TickJobData, TickResult>(
     TICK_QUEUE,
-    async (job) => {
-      const config = await opts.buildConfig();
-      const result = await runSendTick(config);
-      if (opts.onTickComplete) await opts.onTickComplete(result);
-      return result;
+    async () => {
+      // Defense-in-depth: BullMQ already serializes the recurring tick by
+      // jobId, but a manual enqueue or a stray `pnpm send-tick` could race.
+      // The mutex ensures only one tick mutates state at a time across all
+      // pods. If the lock is held, we skip cleanly — the next scheduled
+      // tick will pick up the work.
+      const handle = await tryAcquire(redis, {
+        key: TICK_LOCK_KEY,
+        ttlSeconds: 600,
+      });
+      if (!handle) {
+        console.warn(
+          "[queue] tick skipped: another worker holds the lock",
+        );
+        return SKIPPED_BY_LOCK;
+      }
+      try {
+        const config = await opts.buildConfig();
+        const result = await runSendTick(config);
+        if (opts.onTickComplete) await opts.onTickComplete(result);
+        return result;
+      } finally {
+        await handle.release();
+      }
     },
     workerOpts,
   );

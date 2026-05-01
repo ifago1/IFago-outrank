@@ -1,20 +1,24 @@
 #!/usr/bin/env tsx
 /**
- * CLI: pnpm discover --niche="kapper" --city="Utrecht" --radius=5000
+ * CLI: pnpm discover --niche="kapper" --city="Utrecht" [--radius=5000] [--max-pages=3]
  *
- * Calls Google Places API (New), upserts results into the `businesses` table
- * keyed on Google's stable place_id.
+ * Calls Google Places API (New) and upserts results into `businesses`,
+ * keyed on Google's stable place_id. With --radius set we first geocode
+ * the city to lat/lng and then bias the search to that circle.
  */
 import { parseArgs } from "node:util";
 import { sql } from "drizzle-orm";
 import { businesses, getDb, closeDb } from "@outreach/db";
 import { PlacesClient } from "@outreach/places";
+import { Geocoder } from "@outreach/geocoding";
+import { loadConfigOrExit } from "@outreach/config";
 
 interface CliOptions {
   niche: string;
   city: string;
-  radiusMeters: number;
   pageSize: number;
+  radiusMeters: number | undefined;
+  maxPages: number;
   dryRun: boolean;
 }
 
@@ -23,8 +27,9 @@ function parseCliArgs(): CliOptions {
     options: {
       niche: { type: "string" },
       city: { type: "string" },
-      radius: { type: "string", default: "5000" },
       "page-size": { type: "string", default: "20" },
+      radius: { type: "string" },
+      "max-pages": { type: "string", default: "1" },
       "dry-run": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -36,24 +41,30 @@ function parseCliArgs(): CliOptions {
     process.exit(values.help ? 0 : 1);
   }
 
+  const radius = values.radius ? Number(values.radius) : undefined;
   return {
     niche: values.niche,
     city: values.city,
-    radiusMeters: Number(values.radius),
     pageSize: Number(values["page-size"]),
+    radiusMeters: radius,
+    maxPages: Math.min(3, Math.max(1, Number(values["max-pages"]))),
     dryRun: values["dry-run"] ?? false,
   };
 }
 
 function printUsage(): void {
   console.log(`
-Usage: pnpm discover --niche="<niche>" --city="<city>" [--radius=5000] [--page-size=20] [--dry-run]
+Usage: pnpm discover --niche="<niche>" --city="<city>" [--radius=5000] [--max-pages=3] [--dry-run]
 
 Options:
   --niche       Branch / category to search for (required), e.g. "kapper"
   --city        City name to bias results to (required), e.g. "Utrecht"
-  --radius      Bias radius in meters (default: 5000, max: 50000)
-  --page-size   Max results per call (1-20, default: 20)
+  --radius      Geographic radius in meters around the city center.
+                When set, the city is geocoded and Places filters by that
+                circle. Without --radius the search is text-only.
+  --page-size   Results per request (1-20, default: 20)
+  --max-pages   Walk Places' nextPageToken pagination (max 3 = 60 results,
+                default: 1). Each page is a separate billable call.
   --dry-run     Print results, do not write to the database
   -h, --help    Show this help
 
@@ -63,24 +74,44 @@ Required env: GOOGLE_PLACES_API_KEY, DATABASE_URL (unless --dry-run).
 
 async function main(): Promise<void> {
   const opts = parseCliArgs();
+  const cfg = opts.dryRun
+    ? { GOOGLE_PLACES_API_KEY: requiredEnv("GOOGLE_PLACES_API_KEY") }
+    : loadConfigOrExit("discover");
 
-  const apiKey = process.env["GOOGLE_PLACES_API_KEY"];
-  if (!apiKey) {
-    console.error("GOOGLE_PLACES_API_KEY is required");
-    process.exit(1);
+  const client = new PlacesClient({ apiKey: cfg.GOOGLE_PLACES_API_KEY });
+
+  // Geocode the city if a radius was requested — otherwise text-only bias.
+  let locationBias:
+    | { center: { latitude: number; longitude: number }; radiusMeters: number }
+    | undefined;
+  if (opts.radiusMeters) {
+    const geocoder = new Geocoder({ apiKey: cfg.GOOGLE_PLACES_API_KEY });
+    const loc = await geocoder.geocode(opts.city);
+    if (!loc) {
+      console.error(
+        `Could not geocode "${opts.city}" — falling back to text-only search`,
+      );
+    } else {
+      locationBias = {
+        center: { latitude: loc.latitude, longitude: loc.longitude },
+        radiusMeters: Math.min(50_000, opts.radiusMeters),
+      };
+      console.log(
+        `Geocoded "${opts.city}" -> ${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)} (radius=${locationBias.radiusMeters}m)`,
+      );
+    }
   }
 
-  const client = new PlacesClient({ apiKey });
-
   const query = `${opts.niche} in ${opts.city}`;
-  console.log(`Searching: "${query}" (radius=${opts.radiusMeters}m)`);
+  console.log(
+    `Searching: "${query}" (max-pages=${opts.maxPages}${locationBias ? ", radius-biased" : ""})`,
+  );
 
-  const results = await client.searchBusinesses({
+  const results = await client.searchBusinessesAllPages({
     query,
     pageSize: opts.pageSize,
-    // We don't geocode the city ourselves yet -- the textQuery already
-    // includes "in <city>". Once we add a Geocoding step, we can supply a
-    // proper locationBias circle. See README.
+    maxPages: opts.maxPages,
+    ...(locationBias ? { locationBias } : {}),
   });
 
   console.log(`Found ${results.length} place(s).`);
@@ -133,6 +164,15 @@ async function main(): Promise<void> {
     .returning({ id: businesses.id, placeId: businesses.placeId });
 
   console.log(`Upserted ${inserted.length} business row(s).`);
+}
+
+function requiredEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) {
+    console.error(`Missing required env: ${name}`);
+    process.exit(1);
+  }
+  return v;
 }
 
 main()

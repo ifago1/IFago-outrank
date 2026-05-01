@@ -26,8 +26,10 @@
   },
   "dependencies": {
     "@outreach/ai-personalization": "workspace:*",
+    "@outreach/config": "workspace:*",
     "@outreach/db": "workspace:*",
     "@outreach/enrichment": "workspace:*",
+    "@outreach/geocoding": "workspace:*",
     "@outreach/mailer": "workspace:*",
     "@outreach/places": "workspace:*",
     "@outreach/queue": "workspace:*",

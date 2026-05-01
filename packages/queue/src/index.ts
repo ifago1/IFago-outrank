@@ -8,3 +8,5 @@ export {
 export type { TickJobData, ScheduleTickOptions } from "./queues.js";
 export { createTickWorker } from "./worker.js";
 export type { CreateTickWorkerOptions } from "./worker.js";
+export { tryAcquire, withMutex } from "./lock.js";
+export type { MutexHandle, MutexOptions } from "./lock.js";
