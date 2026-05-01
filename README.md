@@ -25,12 +25,14 @@ automatische opvolging en reply-detectie.
 ├── packages/
 │   ├── db/                     Drizzle schema + migraties + Postgres client
 │   ├── places/                 Google Places API (New) client
+│   ├── website-quality/        HTTP/SSL/mobile/legacy heuristics + scorer
 │   ├── enrichment/             Website scraper + Hunter + MX validator
 │   ├── templates/              Mustache-style template engine + unsub tokens
 │   ├── mailer/                 Postmark SDK wrapper + MockMailer
 │   └── sequencer/              Pre-send guards + tick worker + reply matcher
 ├── scripts/
 │   ├── discover.ts             Module 1 — Google Places ingest
+│   ├── score-websites.ts       Module 2 — audit homepages, set quality bucket
 │   ├── enrich.ts               Module 3 — find emails for businesses
 │   ├── seed-campaign.ts        Module 4 — create campaign + default sequence
 │   ├── assign-leads.ts         Module 4 — add contacts as leads
@@ -62,16 +64,19 @@ pnpm dev                         # dashboard op http://localhost:3000
 # 1. Lead Discovery — Google Places
 pnpm discover --niche="kapper" --city="Utrecht"
 
-# 2. Enrichment — vind emailadressen via website + Hunter (optioneel)
+# 2. Website-quality scoring — audit homepages, score `outdated|decent|good`
+pnpm score-websites --limit=20
+
+# 3. Enrichment — vind emailadressen via website + Hunter (optioneel)
 pnpm enrich --limit=20
 
-# 3. Campagne aanmaken (default 3-step sequence uit het projectplan)
+# 4. Campagne aanmaken (default 3-step sequence uit het projectplan)
 pnpm seed-campaign --name="Kappers Utrecht Q2" --niche=kapper --activate
 
-# 4. Leads toewijzen aan de campagne
+# 5. Leads toewijzen aan de campagne
 pnpm assign-leads --campaign="Kappers Utrecht Q2" --no-website --limit=20
 
-# 5. Sequencer draaien (één tick — zet als cron, bv. elke 15 min)
+# 6. Sequencer draaien (één tick — zet als cron, bv. elke 15 min)
 pnpm send-tick --dry-run         # eerst valideren
 pnpm send-tick                   # echt sturen
 ```
@@ -81,6 +86,7 @@ pnpm send-tick                   # echt sturen
 | Script | Wat het doet |
 |---|---|
 | `pnpm discover` | Google Places Text Search → upsert in `businesses` op `place_id` |
+| `pnpm score-websites` | Audit homepages (HTTPS, viewport, table-layout, jQuery 1.x, Flash, X-UA-Compatible, doctype, copyright-year) → bucket `outdated|decent|good` in `businesses.website_quality` |
 | `pnpm enrich` | Voor businesses zonder contact: scrape website (`/contact`, `/over-ons`, etc.) + optioneel Hunter Domain Search → MX-valideren → upsert in `contacts` |
 | `pnpm seed-campaign` | Maakt een campagne + 3-step sequence aan (idempotent op naam) |
 | `pnpm assign-leads` | Filtert contacten en maakt `campaign_leads` aan |
@@ -158,7 +164,7 @@ maken de upsert-paths in `enrich` en `assign-leads` idempotent.
 - ✅ **Module 6** — Reply detection (Postmark webhook)
 - ✅ **Module 7** — Unsubscribe-handling (RFC 8058)
 - ✅ **Module 8** — Dashboard
-- ⬜ **Module 2** — Website-quality scoring (Lighthouse, viewport-check)
+- ✅ **Module 2** — Website-quality scoring (heuristieken; Lighthouse blijft als optionele upgrade)
 - ⬜ AI-personalisatie van `personal_observation` via Claude API
 - ⬜ A/B-testen op subject/body
 - ⬜ BullMQ voor distributed sends (huidige tick is single-process)

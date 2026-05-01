@@ -26,6 +26,9 @@ importers:
       '@outreach/templates':
         specifier: workspace:*
         version: link:packages/templates
+      '@outreach/website-quality':
+        specifier: workspace:*
+        version: link:packages/website-quality
       drizzle-orm:
         specifier: ^0.36.4
         version: 0.36.4(@types/react@19.2.14)(postgres@3.4.9)(react@19.2.5)
@@ -155,6 +158,15 @@ importers:
         version: 2.1.9(@types/node@20.19.39)
 
   packages/templates:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.9(@types/node@20.19.39)
+
+  packages/website-quality:
     devDependencies:
       typescript:
         specifier: ^5.6.2

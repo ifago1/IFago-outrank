@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 interface SearchParams {
   niche?: string;
   city?: string;
-  status?: "any" | "no_website" | "queued" | "sent" | "replied";
+  status?: "any" | "no_website" | "outdated" | "decent" | "good";
 }
 
 export default async function LeadsPage({
@@ -27,6 +27,13 @@ export default async function LeadsPage({
   if (params.niche) where.push(eq(businesses.category, params.niche));
   if (params.city) where.push(eq(businesses.city, params.city));
   if (params.status === "no_website") where.push(isNull(businesses.websiteUrl));
+  if (
+    params.status === "outdated" ||
+    params.status === "decent" ||
+    params.status === "good"
+  ) {
+    where.push(eq(businesses.websiteQuality, params.status));
+  }
 
   const rows = await db
     .select({
@@ -35,6 +42,7 @@ export default async function LeadsPage({
       city: businesses.city,
       category: businesses.category,
       websiteUrl: businesses.websiteUrl,
+      websiteQuality: businesses.websiteQuality,
       rating: businesses.googleRating,
       reviewsCount: businesses.reviewsCount,
       contactCount: sql<number>`(SELECT count(*)::int FROM contacts c WHERE c.business_id = ${businesses.id})`,
@@ -58,7 +66,7 @@ export default async function LeadsPage({
       />
       <FilterBar params={params} />
       <Table
-        columns={["Business", "City", "Category", "Website", "Rating", "Contacts", "In campaign"]}
+        columns={["Business", "City", "Category", "Website", "Quality", "Rating", "Contacts", "In campaign"]}
         rows={rows.map((r) => [
           r.name,
           r.city ?? "—",
@@ -76,6 +84,7 @@ export default async function LeadsPage({
           ) : (
             <Pill key="w" tone="warn">geen website</Pill>
           ),
+          qualityPill(r.websiteUrl, r.websiteQuality),
           r.rating != null
             ? `${Number(r.rating).toFixed(1)} (${r.reviewsCount ?? 0})`
             : "—",
@@ -86,6 +95,16 @@ export default async function LeadsPage({
       />
     </>
   );
+}
+
+function qualityPill(websiteUrl: string | null, quality: string | null) {
+  if (!websiteUrl) return <Pill tone="bad">geen site (top-prio)</Pill>;
+  if (!quality || quality === "none")
+    return <span style={{ opacity: 0.6 }}>—</span>;
+  if (quality === "good") return <Pill tone="ok">goed</Pill>;
+  if (quality === "decent") return <Pill tone="warn">decent</Pill>;
+  if (quality === "outdated") return <Pill tone="bad">verouderd</Pill>;
+  return <Pill>{quality}</Pill>;
 }
 
 function FilterBar({ params }: { params: SearchParams }) {
@@ -112,8 +131,11 @@ function FilterBar({ params }: { params: SearchParams }) {
         style={inputStyle}
       />
       <select name="status" defaultValue={params.status ?? "any"} style={inputStyle}>
-        <option value="any">Alle statussen</option>
-        <option value="no_website">Zonder website</option>
+        <option value="any">Alle leads</option>
+        <option value="no_website">Zonder website (top-prio)</option>
+        <option value="outdated">Verouderde site</option>
+        <option value="decent">Decent</option>
+        <option value="good">Goed (skip)</option>
       </select>
       <button type="submit" style={btnStyle}>Filter</button>
     </form>
