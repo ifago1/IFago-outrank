@@ -18,6 +18,10 @@ import {
   type SendWindow,
   type SkipReason,
 } from "./guards.js";
+import {
+  effectiveDailyLimit,
+  evaluateBounceCircuit,
+} from "./health.js";
 import { buildPersonalObservation } from "./personalization.js";
 import { pickWeighted } from "./variant-selector.js";
 
@@ -41,6 +45,23 @@ export interface RunTickConfig {
   batchSize?: number;
   /** When true, evaluates everything but does not send / mutate state. */
   dryRun?: boolean;
+  /**
+   * Domain-warmup ramp. When set, the effective daily limit is interpolated
+   * linearly from `floor` (day 0) to `dailyLimit` (day `days`). Disabled
+   * (full daily limit immediately) when omitted.
+   */
+  warmup?: { days: number; floor: number };
+  /**
+   * Bounce-rate circuit breaker. When the recent bounce rate (last
+   * `windowSize` sends) exceeds `threshold`, the entire tick is halted —
+   * sending more mail with bad addresses scorches sender reputation.
+   * Default threshold 5%, window 50 sends. Disabled when omitted.
+   */
+  bounceCircuit?: {
+    threshold?: number;
+    windowSize?: number;
+    minSent?: number;
+  };
   /**
    * Optional Claude-backed personalizer. When provided, the first time we
    * send to a business we ask Claude to write a one-line observation and
@@ -103,6 +124,41 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
   const now = cfg.now ?? new Date();
   const batchSize = cfg.batchSize ?? 50;
 
+  // Tick-level guard: bounce-rate circuit breaker.
+  if (cfg.bounceCircuit) {
+    const windowSize = cfg.bounceCircuit.windowSize ?? 50;
+    const recent = await fetchRecentBounceStats(cfg.db, windowSize);
+    const decision = evaluateBounceCircuit({
+      recentBounces: recent.bounces,
+      recentSent: recent.sent,
+      ...(cfg.bounceCircuit.threshold !== undefined
+        ? { threshold: cfg.bounceCircuit.threshold }
+        : {}),
+      ...(cfg.bounceCircuit.minSent !== undefined
+        ? { minSent: cfg.bounceCircuit.minSent }
+        : {}),
+    });
+    if (decision.open) {
+      console.warn(
+        `[runSendTick] bounce circuit open — halting tick (${decision.reason})`,
+      );
+      return { evaluated: 0, sent: 0, skipped: 0, failed: 0, outcomes: [] };
+    }
+  }
+
+  // Tick-level: compute the warmup-adjusted daily limit (once per tick).
+  let effectiveLimit = cfg.dailyLimit;
+  if (cfg.warmup) {
+    const firstSentAt = await fetchFirstSentAt(cfg.db);
+    effectiveLimit = effectiveDailyLimit({
+      firstSentAt,
+      now,
+      fullLimit: cfg.dailyLimit,
+      warmupDays: cfg.warmup.days,
+      floor: cfg.warmup.floor,
+    });
+  }
+
   const due = await fetchDueLeads(cfg.db, now, batchSize);
   const unsubscribed = await fetchUnsubscribed(cfg.db);
   const sentTodayBase = await countSentToday(cfg.db, now);
@@ -155,7 +211,7 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
       now,
       window: cfg.window,
       sentToday: sentTodayBase + sentNow,
-      dailyLimit: cfg.dailyLimit,
+      dailyLimit: effectiveLimit,
     });
 
     if (skip) {
@@ -361,6 +417,30 @@ async function fetchDueLeads(
 async function fetchUnsubscribed(db: Db): Promise<Set<string>> {
   const rows = await db.select({ email: unsubscribes.email }).from(unsubscribes);
   return new Set(rows.map((r) => r.email.toLowerCase()));
+}
+
+async function fetchFirstSentAt(db: Db): Promise<Date | null> {
+  const rows = await db
+    .select({ first: sql<Date | null>`MIN(${emailsSent.sentAt})` })
+    .from(emailsSent);
+  const first = rows[0]?.first;
+  return first ? new Date(first as unknown as string) : null;
+}
+
+async function fetchRecentBounceStats(
+  db: Db,
+  windowSize: number,
+): Promise<{ sent: number; bounces: number }> {
+  // Take the last N emails by sent_at and count bounces among them.
+  const rows = await db
+    .select({ bounced: emailsSent.bounced })
+    .from(emailsSent)
+    .orderBy(sql`${emailsSent.sentAt} DESC`)
+    .limit(windowSize);
+  return {
+    sent: rows.length,
+    bounces: rows.filter((r) => r.bounced).length,
+  };
 }
 
 async function countSentToday(db: Db, now: Date): Promise<number> {

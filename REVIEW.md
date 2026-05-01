@@ -137,12 +137,59 @@ them against a Postgres service container.
 
 ---
 
-## 5. Eindstand
+## 5. Pass 4 — production hardening
 
-Implementatie-volledig. Wat er nog bewust open ligt is alleen
-**materiealiseerde stats-views**, en die zijn pas relevant bij >100k
-emails sent — voor MVP is de huidige inline-aggregatie + composite
-indexen ruim voldoende.
+Drie items toegevoegd op basis van de "ik zou dit ook nog doen voor
+productie" lijst:
+
+### 5.1 ✅ Domain warmup ramp
+**Waarom:** een nieuw afzenderdomein dat plotseling 50/dag verstuurt
+wordt door spamfilters opgepakt — het projectplan (sectie 11) raadde
+expliciet aan langzaam op te bouwen.
+**Implementatie:** pure helper `effectiveDailyLimit({firstSentAt, now,
+fullLimit, warmupDays, floor})` interpoleert lineair tussen `floor`
+(dag 0) en `fullLimit` (dag `warmupDays`). Wired in `runSendTick`,
+gestuurd via `WARMUP_DAYS` + `WARMUP_FLOOR` env vars (beide vereist om
+de ramp te activeren). 6 unit tests + 1 integration test.
+
+### 5.2 ✅ Bounce-rate circuit breaker
+**Waarom:** als de bounce-rate over de laatste N sends plotseling
+stijgt (bv. omdat een Hunter-batch slechte data opleverde) blijven we
+nu doorsturen — slechtste manier om je sender reputation kapot te
+maken.
+**Implementatie:** `evaluateBounceCircuit({recentBounces, recentSent,
+threshold, minSent})` is pure. `runSendTick` checkt voor de hot loop;
+als `open` returnt het direct met `evaluated=0`. Env: `BOUNCE_THRESHOLD`
+(0..1, default 0.05), `BOUNCE_WINDOW` (default 50), `BOUNCE_MIN_SENT`
+(default 20 — voorkomt false positives op kleine samples). 4 unit
+tests + 1 integration test.
+
+### 5.3 ✅ GDPR export/purge CLI
+**Waarom:** als een ontvanger AVG Art. 15 (toegang) of Art. 17
+(verwijdering) aanvraagt moet je dat snel kunnen verwerken én aantonen.
+**Implementatie:** nieuwe `scripts/gdpr.ts`:
+- `pnpm gdpr --email=<email>` → summary van wat we hebben
+- `pnpm gdpr --email=<email> --export [--out=x.json]` → volledige JSON-dump
+- `pnpm gdpr --email=<email> --purge --confirm` → atomic delete in een
+  transaction + permanente entry in `unsubscribes` (reason="gdpr_request")
+  zodat re-discovery + re-enrichment nooit opnieuw mailt
+Businesses-tabel blijft staan (publieke Google Places data, geen
+persoonsgegevens). FK cascade dekt emails_sent + campaign_leads.
+
+### 5.4 Test coverage
+
+| Package | Pass 3 | Pass 4 | Delta |
+|---|---|---|---|
+| sequencer | 20 unit + 6 int | **30 unit + 8 int** | +4 health, +2 integration |
+| **Totaal** | **130** | **142** (134 unit + 8 int) | +12 |
+
+---
+
+## 6. Eindstand
+
+Implementatie-volledig voor MVP + production. Wat er nog bewust open
+ligt is alleen **materiealiseerde stats-views**, en die zijn pas
+relevant bij >100k emails sent.
 
 De codebase telt nu:
 - **13 packages** + 1 Next.js app

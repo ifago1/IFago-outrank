@@ -300,4 +300,88 @@ describeIfDb("runSendTick (integration)", () => {
     expect(lead?.status).toBe("queued");
     expect(lead?.currentStep).toBe(0);
   });
+
+  it("warmup ramp: caps the daily limit on day 0 to the floor", async () => {
+    // Seed two pending leads — even with dailyLimit=50, only the floor
+    // should send through on the first day.
+    const { contactEmail: e1 } = await seedHappyPath();
+    // Add a second business + lead to give the tick something to clamp against.
+    const [biz2] = await db
+      .insert(businesses)
+      .values({ placeId: "p2", name: "Salon B" })
+      .returning();
+    const [c2] = await db
+      .insert(contacts)
+      .values({
+        businessId: biz2!.id,
+        email: "b@x.nl",
+        firstName: "B",
+        isVerified: true,
+      })
+      .returning();
+    const [campaign] = await db.select().from(campaigns);
+    await db.insert(campaignLeads).values({
+      campaignId: campaign!.id,
+      contactId: c2!.id,
+      status: "queued",
+      currentStep: 0,
+      nextSendAt: NOW,
+    });
+
+    const mailer = new MockMailer();
+    const result = await runSendTick({
+      ...buildConfig(mailer),
+      warmup: { days: 14, floor: 1 }, // first send => limit clamped to 1
+    });
+
+    // Of the 2 due leads, only 1 should send (limit hit)
+    expect(result.sent).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.outcomes.find((o) => o.status === "skipped")?.reason).toBe(
+      "daily_limit_reached",
+    );
+    expect(e1).toBeTruthy();
+  });
+
+  it("bounce circuit breaker halts the tick when bounce rate is too high", async () => {
+    await seedHappyPath();
+
+    // Pre-seed emails_sent with a 20%-bounce history (4 of 20 bounced).
+    // Need a synthetic campaign_lead first since emails_sent FKs into it.
+    const [campaign] = await db.select().from(campaigns);
+    const [biz] = await db
+      .insert(businesses)
+      .values({ placeId: "p-bounces", name: "BounceCo" })
+      .returning();
+    const [contact] = await db
+      .insert(contacts)
+      .values({ businessId: biz!.id, email: "bounce@x.nl" })
+      .returning();
+    const [lead] = await db
+      .insert(campaignLeads)
+      .values({
+        campaignId: campaign!.id,
+        contactId: contact!.id,
+        status: "bounced",
+      })
+      .returning();
+    const seedSends = Array.from({ length: 20 }, (_, i) => ({
+      campaignLeadId: lead!.id,
+      stepOrder: 1,
+      subject: "x",
+      body: "y",
+      bounced: i < 4, // 4/20 = 20% bounce rate
+    }));
+    await db.insert(emailsSent).values(seedSends);
+
+    const mailer = new MockMailer();
+    const result = await runSendTick({
+      ...buildConfig(mailer),
+      bounceCircuit: { threshold: 0.05, windowSize: 20, minSent: 10 },
+    });
+
+    expect(result.sent).toBe(0);
+    expect(result.evaluated).toBe(0);
+    expect(mailer.sent).toHaveLength(0);
+  });
 });

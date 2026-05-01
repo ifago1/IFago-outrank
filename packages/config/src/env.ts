@@ -42,6 +42,17 @@ const MailerSlice = z.object({
   SEND_WINDOW_START: hourOfDay.optional(),
   SEND_WINDOW_END: hourOfDay.optional(),
   SEND_WEEKDAYS: weekdaysCsv.optional(),
+  // Domain warmup — set both to enable the linear ramp.
+  WARMUP_DAYS: integer.optional(),
+  WARMUP_FLOOR: integer.optional(),
+  // Bounce circuit breaker — set BOUNCE_THRESHOLD to enable.
+  BOUNCE_THRESHOLD: z
+    .string()
+    .regex(/^0?\.\d+$|^[01]$/, "0..1 decimal")
+    .transform(Number)
+    .optional(),
+  BOUNCE_WINDOW: integer.optional(),
+  BOUNCE_MIN_SENT: integer.optional(),
 });
 
 /** Inbound webhook handler. */

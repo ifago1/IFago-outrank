@@ -31,3 +31,10 @@ export type { ObservationInput } from "./personalization.js";
 
 export { pickWeighted } from "./variant-selector.js";
 export type { Weighted } from "./variant-selector.js";
+
+export { effectiveDailyLimit, evaluateBounceCircuit } from "./health.js";
+export type {
+  WarmupOptions,
+  BounceCircuitOptions,
+  BounceCircuitDecision,
+} from "./health.js";

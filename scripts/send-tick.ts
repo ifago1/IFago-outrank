@@ -78,6 +78,23 @@ async function main(): Promise<void> {
       : DEFAULT_SEND_WINDOW.weekdays,
   };
 
+  const warmup =
+    cfg.WARMUP_DAYS !== undefined && cfg.WARMUP_FLOOR !== undefined
+      ? { days: cfg.WARMUP_DAYS, floor: cfg.WARMUP_FLOOR }
+      : undefined;
+  const bounceCircuit =
+    cfg.BOUNCE_THRESHOLD !== undefined
+      ? {
+          threshold: cfg.BOUNCE_THRESHOLD,
+          ...(cfg.BOUNCE_WINDOW !== undefined
+            ? { windowSize: cfg.BOUNCE_WINDOW }
+            : {}),
+          ...(cfg.BOUNCE_MIN_SENT !== undefined
+            ? { minSent: cfg.BOUNCE_MIN_SENT }
+            : {}),
+        }
+      : undefined;
+
   const result = await runSendTick({
     db,
     mailer,
@@ -90,6 +107,8 @@ async function main(): Promise<void> {
     window,
     batchSize: opts.batchSize,
     dryRun: opts.dryRun,
+    ...(warmup ? { warmup } : {}),
+    ...(bounceCircuit ? { bounceCircuit } : {}),
     personalizer,
   });
 

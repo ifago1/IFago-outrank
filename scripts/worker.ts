@@ -41,6 +41,24 @@ const personalizer = cfg.ANTHROPIC_API_KEY
     })
   : undefined;
 
+const warmup =
+  cfg.WARMUP_DAYS !== undefined && cfg.WARMUP_FLOOR !== undefined
+    ? { days: cfg.WARMUP_DAYS, floor: cfg.WARMUP_FLOOR }
+    : undefined;
+
+const bounceCircuit =
+  cfg.BOUNCE_THRESHOLD !== undefined
+    ? {
+        threshold: cfg.BOUNCE_THRESHOLD,
+        ...(cfg.BOUNCE_WINDOW !== undefined
+          ? { windowSize: cfg.BOUNCE_WINDOW }
+          : {}),
+        ...(cfg.BOUNCE_MIN_SENT !== undefined
+          ? { minSent: cfg.BOUNCE_MIN_SENT }
+          : {}),
+      }
+    : undefined;
+
 const worker = createTickWorker({
   buildConfig: () => ({
     db: getDb(),
@@ -53,6 +71,8 @@ const worker = createTickWorker({
     dailyLimit: cfg.DAILY_SEND_LIMIT ?? 50,
     window: buildWindow(),
     batchSize: cfg.TICK_BATCH_SIZE ?? 50,
+    ...(warmup ? { warmup } : {}),
+    ...(bounceCircuit ? { bounceCircuit } : {}),
     personalizer,
   }),
   onTickComplete: (result) => {
