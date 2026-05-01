@@ -15,11 +15,19 @@
     "db:generate": "pnpm --filter @outreach/db generate",
     "db:migrate": "pnpm --filter @outreach/db migrate",
     "db:studio": "pnpm --filter @outreach/db studio",
-    "discover": "tsx scripts/discover.ts"
+    "discover": "tsx scripts/discover.ts",
+    "enrich": "tsx scripts/enrich.ts",
+    "seed-campaign": "tsx scripts/seed-campaign.ts",
+    "assign-leads": "tsx scripts/assign-leads.ts",
+    "send-tick": "tsx scripts/send-tick.ts"
   },
   "dependencies": {
     "@outreach/db": "workspace:*",
+    "@outreach/enrichment": "workspace:*",
+    "@outreach/mailer": "workspace:*",
     "@outreach/places": "workspace:*",
+    "@outreach/sequencer": "workspace:*",
+    "@outreach/templates": "workspace:*",
     "drizzle-orm": "^0.36.4"
   },
   "devDependencies": {

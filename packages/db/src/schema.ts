@@ -34,21 +34,30 @@ export const businesses = pgTable(
   }),
 );
 
-export const contacts = pgTable("contacts", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  businessId: uuid("business_id")
-    .notNull()
-    .references(() => businesses.id, { onDelete: "cascade" }),
-  email: text("email").notNull(),
-  firstName: text("first_name"),
-  lastName: text("last_name"),
-  source: text("source"),
-  isVerified: boolean("is_verified").notNull().default(false),
-  doNotContact: boolean("do_not_contact").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    source: text("source"),
+    isVerified: boolean("is_verified").notNull().default(false),
+    doNotContact: boolean("do_not_contact").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    businessEmailUnique: uniqueIndex("contacts_business_email_unique").on(
+      table.businessId,
+      table.email,
+    ),
+  }),
+);
 
 export const campaigns = pgTable("campaigns", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -71,21 +80,29 @@ export const sequenceSteps = pgTable("sequence_steps", {
   bodyTemplate: text("body_template").notNull(),
 });
 
-export const campaignLeads = pgTable("campaign_leads", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  campaignId: uuid("campaign_id")
-    .notNull()
-    .references(() => campaigns.id, { onDelete: "cascade" }),
-  contactId: uuid("contact_id")
-    .notNull()
-    .references(() => contacts.id, { onDelete: "cascade" }),
-  status: text("status").notNull().default("queued"),
-  currentStep: integer("current_step").notNull().default(0),
-  nextSendAt: timestamp("next_send_at", { withTimezone: true }),
-  lastEventAt: timestamp("last_event_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const campaignLeads = pgTable(
+  "campaign_leads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => campaigns.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("queued"),
+    currentStep: integer("current_step").notNull().default(0),
+    nextSendAt: timestamp("next_send_at", { withTimezone: true }),
+    lastEventAt: timestamp("last_event_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    campaignContactUnique: uniqueIndex(
+      "campaign_leads_campaign_contact_unique",
+    ).on(table.campaignId, table.contactId),
+  }),
+);
 
 export const emailsSent = pgTable("emails_sent", {
   id: uuid("id").primaryKey().defaultRandom(),

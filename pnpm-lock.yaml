@@ -11,9 +11,21 @@ importers:
       '@outreach/db':
         specifier: workspace:*
         version: link:packages/db
+      '@outreach/enrichment':
+        specifier: workspace:*
+        version: link:packages/enrichment
+      '@outreach/mailer':
+        specifier: workspace:*
+        version: link:packages/mailer
       '@outreach/places':
         specifier: workspace:*
         version: link:packages/places
+      '@outreach/sequencer':
+        specifier: workspace:*
+        version: link:packages/sequencer
+      '@outreach/templates':
+        specifier: workspace:*
+        version: link:packages/templates
       drizzle-orm:
         specifier: ^0.36.4
         version: 0.36.4(@types/react@19.2.14)(postgres@3.4.9)(react@19.2.5)
@@ -36,6 +48,15 @@ importers:
       '@outreach/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@outreach/sequencer':
+        specifier: workspace:*
+        version: link:../../packages/sequencer
+      '@outreach/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
+      drizzle-orm:
+        specifier: ^0.36.4
+        version: 0.36.4(@types/react@19.2.14)(postgres@3.4.9)(react@19.2.5)
       next:
         specifier: ^15.0.3
         version: 15.5.15(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -84,7 +105,56 @@ importers:
         specifier: ^5.6.2
         version: 5.9.3
 
+  packages/enrichment:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.9(@types/node@20.19.39)
+
+  packages/mailer:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.9(@types/node@20.19.39)
+
   packages/places:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.9(@types/node@20.19.39)
+
+  packages/sequencer:
+    dependencies:
+      '@outreach/db':
+        specifier: workspace:*
+        version: link:../db
+      '@outreach/mailer':
+        specifier: workspace:*
+        version: link:../mailer
+      '@outreach/templates':
+        specifier: workspace:*
+        version: link:../templates
+      drizzle-orm:
+        specifier: ^0.36.4
+        version: 0.36.4(@types/react@19.2.14)(postgres@3.4.9)(react@19.2.5)
+    devDependencies:
+      typescript:
+        specifier: ^5.6.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.9(@types/node@20.19.39)
+
+  packages/templates:
     devDependencies:
       typescript:
         specifier: ^5.6.2
