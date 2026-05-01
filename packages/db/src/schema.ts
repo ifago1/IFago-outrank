@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import {
   boolean,
   integer,
@@ -122,5 +121,3 @@ export type SequenceStep = typeof sequenceSteps.$inferSelect;
 export type CampaignLead = typeof campaignLeads.$inferSelect;
 export type EmailSent = typeof emailsSent.$inferSelect;
 export type Unsubscribe = typeof unsubscribes.$inferSelect;
-
-export const _refSql = sql; // keep sql import alive for future raw queries
