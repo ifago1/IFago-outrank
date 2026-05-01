@@ -7,3 +7,10 @@ export type {
   SignalKey,
   WebsiteAuditResult,
 } from "./types.js";
+export { PsiClient } from "./psi.js";
+export type {
+  PsiClientOptions,
+  PsiResult,
+  PsiStrategy,
+  PsiCategory,
+} from "./psi.js";

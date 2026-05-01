@@ -23,6 +23,7 @@ import {
 interface CliOptions {
   limit: number;
   businessId: string | undefined;
+  concurrency: number;
   dryRun: boolean;
 }
 
@@ -31,6 +32,7 @@ function parseCliArgs(): CliOptions {
     options: {
       limit: { type: "string", default: "20" },
       "business-id": { type: "string" },
+      concurrency: { type: "string", default: "5" },
       "dry-run": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -44,13 +46,14 @@ function parseCliArgs(): CliOptions {
   return {
     limit: Number(values.limit),
     businessId: values["business-id"],
+    concurrency: Math.max(1, Math.min(20, Number(values.concurrency))),
     dryRun: values["dry-run"] ?? false,
   };
 }
 
 function printUsage(): void {
   console.log(`
-Usage: pnpm enrich [--limit=20] [--business-id=<uuid>] [--dry-run]
+Usage: pnpm enrich [--limit=20] [--business-id=<uuid>] [--concurrency=5] [--dry-run]
 
 Looks up businesses without an associated contact and tries to find an email
 address via website scrape + Hunter (if HUNTER_API_KEY is set). Validated
@@ -59,6 +62,7 @@ addresses are written to the \`contacts\` table.
 Options:
   --limit         Max businesses to process this run (default: 20)
   --business-id   Process only this business (overrides --limit)
+  --concurrency   How many businesses to enrich in parallel (1-20, default: 5)
   --dry-run       Print results, do not write to the database
   -h, --help      Show this help
 
@@ -94,24 +98,37 @@ async function main(): Promise<void> {
         )
         .limit(opts.limit);
 
-  console.log(`Enriching ${rows.length} business(es)...`);
+  // Filter out businesses with no website upfront — those are skipped.
+  const eligible = rows.filter((b) => b.websiteUrl != null);
+  for (const b of rows) {
+    if (!b.websiteUrl) console.log(`- ${b.name}: no website, skipping`);
+  }
+
+  console.log(
+    `Enriching ${eligible.length} business(es) with concurrency=${opts.concurrency}...`,
+  );
+
+  const batch = await service.enrichBatch(
+    eligible.map((b) => ({
+      businessName: b.name,
+      ...(b.websiteUrl ? { websiteUrl: b.websiteUrl } : {}),
+    })),
+    { concurrency: opts.concurrency },
+  );
 
   let totalEmails = 0;
-  for (const b of rows) {
-    if (!b.websiteUrl) {
-      console.log(`- ${b.name}: no website, skipping`);
+  for (let i = 0; i < batch.length; i++) {
+    const b = eligible[i]!;
+    const r = batch[i]!;
+
+    if (r.error) {
+      console.log(`! ${b.name}: enrichment failed — ${r.error}`);
       continue;
     }
-
-    const result = await service.enrich({
-      businessName: b.name,
-      websiteUrl: b.websiteUrl,
-    });
-
+    const result = r.result!;
     if (result.warnings.length > 0) {
       for (const w of result.warnings) console.log(`  ! ${b.name}: ${w}`);
     }
-
     if (result.emails.length === 0) {
       console.log(`- ${b.name}: no emails found`);
       continue;
@@ -143,7 +160,9 @@ async function main(): Promise<void> {
       });
   }
 
-  console.log(`Done — ${totalEmails} email(s) found across ${rows.length} business(es).`);
+  console.log(
+    `Done — ${totalEmails} email(s) found across ${eligible.length} business(es).`,
+  );
 }
 
 main()

@@ -43,13 +43,13 @@ Volgens token-counts ruim boven 4096 tokens — caching engageert nu echt
 op elke tweede call. Bonus: meer few-shot voorbeelden = consistentere
 output.
 
-### 2.4 ⏭️ runSendTick integration test
-**Status:** **bewust niet gedaan**. Vereist test-Postgres in CI of
-significante DB-mock — beide zijn substantieel werk. De pure helpers
-zijn allemaal getest (113 cases totaal); de orchestratie zelf is
-uncovered.
-**Recommendation:** voeg later een GitHub Actions Postgres service
-toe en schrijf 2-3 end-to-end ticks tegen een vers schema.
+### 2.4 ✅ runSendTick integration test
+**Was:** orchestratie van runSendTick uncovered.
+**Nu:** `packages/sequencer/src/run-tick.integration.test.ts` met 6
+end-to-end scenarios tegen een echte Postgres (happy path, unsubscribe,
+A/B variant selectie, completion, send-window skip, dry-run).
+Skipped lokaal als `TEST_DATABASE_URL` ontbreekt; CI spint een
+postgres:16-alpine service container op (zie `.github/workflows/ci.yml`).
 
 ### 2.5 ✅ Places pagination
 **Was:** max 20 results per call.
@@ -89,68 +89,67 @@ stad en geeft een echte `locationBias.circle` mee aan Places. Falt
 back op text-only search bij ZERO_RESULTS. 5 unit tests (zelfde mock-
 fetch pattern als Places).
 
-### 2.10 ⏭️ Lighthouse-grade scoring
-**Status:** **bewust niet gedaan**. Vereist headless browser
-(Puppeteer/Playwright) per audit. Voor MVP zijn de 12 heuristieken
-afdoende.
-**Recommendation:** voeg later een optionele `@lhci/cli` integratie
-toe voor periodieke deep-audits.
+### 2.10 ✅ Lighthouse-grade scoring (via PageSpeed Insights API)
+**Was:** alleen heuristieken; Lighthouse blok-fixed op headless browser.
+**Nu:** nieuwe `PsiClient` in `packages/website-quality/src/psi.ts` —
+roept Google's hosted Lighthouse aan via PageSpeed Insights API. Geen
+chromium dependency. Returns alle 4 categorie scores (performance,
+accessibility, best-practices, seo) als 0-100. 6 unit tests met
+gemockte fetch. Optioneel — alleen actief als de gebruiker wil
+combineren met heuristieken (heuristisch is nu nog steeds de default
+in `WebsiteScorer.audit()` voor snelheid).
 
 ---
 
 ## 3. Test coverage overview
 
-| Package | Cases | Highlights |
-|---|---|---|
-| places | 9 | Headers, field mask, body, pageSize clamp, normalization, error path |
-| website-quality | 30 | Alle 12 signal-checks + bucketing + end-to-end audit |
-| enrichment | 19 | Email-validator (syntax/MX/role), website scraper, Hunter |
-| templates | 17 | render() + HMAC token round-trip + **expiry** + legacy compat |
-| mailer | 3 | Postmark payload, threading, List-Unsubscribe, error |
-| sequencer | 20 | preSendCheck (5 guards), pickWeighted, reply-matcher |
-| ai-personalization | 4 | buildUserPrompt formatting + caps |
-| queue | 1 | Stable queue name |
-| **config** | **5** | **Slice selection, multi-error reporting, validators** |
-| **geocoding** | **5** | **Geocode happy path, ZERO_RESULTS, REQUEST_DENIED, empty input** |
-| **Total** | **113** | (was 95 in pass 1) |
+| Package | Unit | Integration | Highlights |
+|---|---|---|---|
+| places | 9 | — | Headers, field mask, pagination, normalization |
+| website-quality | 36 | — | 12 heuristic signals + bucketing + **PSI client** |
+| enrichment | 24 | — | Validator, scraper, Hunter, **mapWithConcurrency** |
+| templates | 17 | — | render() + HMAC token round-trip + expiry + legacy compat |
+| mailer | 3 | — | Postmark payload, threading, error |
+| sequencer | 20 | **6** | preSendCheck, variant selector, **end-to-end runSendTick** |
+| ai-personalization | 4 | — | buildUserPrompt formatting |
+| queue | 1 | — | Stable queue name |
+| config | 5 | — | Slice validation, multi-error reporting |
+| geocoding | 5 | — | Happy path, ZERO_RESULTS, REQUEST_DENIED |
+| **Total** | **124** | **6** | (was 113 unit only in pass 2) |
 
-**Untested orchestration paths** (zie 2.4):
-- `runSendTick` end-to-end
-- `EnrichmentService.enrich` (sources individually wel getest)
-- Webhook handlers
-- Dashboard server-component data-fetching
+Integration tests skip locally without `TEST_DATABASE_URL`; CI runs
+them against a Postgres service container.
 
----
-
-## 4. Performance notes
-
-- `apps/web` SSR queries gebruiken inline `sql<number>` subqueries voor
-  counts. Op grote datasets (>10k leads) wordt dit traag — overweeg een
-  gemateriealiseerde view of pre-aggregeren.
-- Voeg een composite index toe als je >50k actieve leads hebt:
-  ```sql
-  CREATE INDEX campaign_leads_due ON campaign_leads (status, next_send_at)
-    WHERE status IN ('queued', 'sent');
-  ```
-- AI personalisatie cached per-business — eerste call kost ~$0.005 (Opus)
-  of ~$0.001 (Haiku), elke volgende call gratis. Met de uitgebreide system
-  prompt levert de eerste call ook prompt-cache writes op (1.25× input cost),
-  maar daarna profiteer je van ~10× discount op reads.
-- `EnrichmentService` doet sequentieel: scraper → Hunter → MX. Bij grote
-  enrichment-runs (1000+ businesses) zou je kunnen parallelliseren met
-  `Promise.allSettled` per-business batches.
+**Untested paths** (low priority):
+- Webhook handlers (Postmark inbound + unsubscribe HTTP layer)
+- Dashboard server-component data-fetching (mostly direct Drizzle queries
+  whose pieces are tested elsewhere)
 
 ---
 
-## 5. Wat resteert (lage prio)
+## 4. Performance — pass 3 fixes
 
-1. **runSendTick integration test** — vereist test-Postgres. Pure helpers
-   zijn 100% gedekt; alleen de glue is uncovered.
-2. **Lighthouse-deep audit** — optioneel; huidige 12 heuristieken zijn
-   afdoende voor MVP.
-3. **EnrichmentService parallellisatie** — pas relevant bij >1000 businesses
-   per run.
-4. **Materiealiseerde stats-views** — pas relevant bij >10k leads.
+| Was | Nu |
+|---|---|
+| Inline subqueries op `/stats` worden traag bij >10k leads | Composite indexen toegevoegd in **migratie 0003**: `campaign_leads(status, next_send_at)` partial, `emails_sent(message_id)` partial, `emails_sent(campaign_lead_id, step_order)`, `campaign_leads(last_event_at desc)` partial voor `/inbox` |
+| AI personalisatie: prompt cache engageerde niet (zie 2.3) | System prompt boven 4096-token threshold; eerste call schrijft cache (1.25×), daarna ~10× discount |
+| `EnrichmentService` was sequentieel (scraper → Hunter → MX per business) | Nieuwe `enrichBatch()` met configurable concurrency (default 5). `pnpm enrich --concurrency=10` gebruikt het. Per-business `Promise.allSettled`-stijl: één failure sinkt de batch niet |
 
-De codebase is functioneel compleet, security-hardened, en alle 8 modules
-+ 3 roadmap-items + alle 9 must-fixes uit pass 1 zijn geïmplementeerd.
+---
+
+## 5. Eindstand
+
+Implementatie-volledig. Wat er nog bewust open ligt is alleen
+**materiealiseerde stats-views**, en die zijn pas relevant bij >100k
+emails sent — voor MVP is de huidige inline-aggregatie + composite
+indexen ruim voldoende.
+
+De codebase telt nu:
+- **13 packages** + 1 Next.js app
+- **130 tests** (124 unit + 6 integration)
+- **9 CLI scripts** + 2 webhook routes + 5 dashboard pages
+- **3 schema migraties**
+- HTTP basic auth, Redis-mutex, env-validation, prompt-cache-engaged AI,
+  parallel enrichment, geocoding, A/B testing, BullMQ workers — alles geïntegreerd
+
+Klaar voor productie-deploy.

@@ -1,11 +1,19 @@
 import { HunterClient } from "./hunter.js";
 import { WebsiteScraper } from "./website-scraper.js";
 import { validateEmail, type ValidationResult } from "./email-validator.js";
+import { mapWithConcurrency } from "./concurrency.js";
 import type {
   EnrichmentInput,
   EnrichmentResult,
   FoundEmail,
 } from "./types.js";
+
+export interface BatchResult {
+  input: EnrichmentInput;
+  /** Populated on success; null when the per-business call threw. */
+  result: EnrichmentResult | null;
+  error: string | null;
+}
 
 export interface EnrichmentServiceOptions {
   scraper?: WebsiteScraper;
@@ -78,6 +86,36 @@ export class EnrichmentService {
     }
 
     return { emails: validated, warnings };
+  }
+
+  /**
+   * Enrich many businesses in parallel with a configurable concurrency
+   * cap. Each business gets a settled-style result so a single failure
+   * doesn't sink the batch — perfect for long-running CLI runs.
+   *
+   * Default concurrency is 5: enough to keep things moving without
+   * overwhelming the upstreams (Hunter rate limits, polite scraping).
+   */
+  async enrichBatch(
+    inputs: readonly EnrichmentInput[],
+    opts: { concurrency?: number } = {},
+  ): Promise<BatchResult[]> {
+    const settled = await mapWithConcurrency(
+      inputs,
+      opts.concurrency ?? 5,
+      (input) => this.enrich(input),
+    );
+    return settled.map((s, i) => {
+      const input = inputs[i]!;
+      if (s.status === "fulfilled") {
+        return { input, result: s.value, error: null };
+      }
+      return {
+        input,
+        result: null,
+        error: s.reason instanceof Error ? s.reason.message : String(s.reason),
+      };
+    });
   }
 }
 

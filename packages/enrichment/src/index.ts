@@ -1,4 +1,7 @@
 export { EnrichmentService } from "./service.js";
+export type { BatchResult } from "./service.js";
+export { mapWithConcurrency } from "./concurrency.js";
+export type { SettledResult } from "./concurrency.js";
 export { HunterClient } from "./hunter.js";
 export { WebsiteScraper, extractEmails } from "./website-scraper.js";
 export {
