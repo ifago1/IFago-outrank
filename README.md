@@ -47,10 +47,22 @@ automatische opvolging en reply-detectie.
 
 ## VPS deploy in 5 minuten
 
-Voor productie op een eigen VPS — zie **[DEPLOY.md](./DEPLOY.md)**:
-één-host Docker Compose stack met Postgres, Redis, dashboard, BullMQ
-worker, en Caddy met automatische HTTPS via Let's Encrypt. Setup-wizard
-genereert alle env-vars en secrets.
+Voor productie op een eigen Ubuntu/Debian VPS — zie
+**[DEPLOY.md](./DEPLOY.md)** voor de volledige walkthrough. Twee paden:
+
+**Bare-metal** (aanbevolen — geen Docker nodig):
+
+```bash
+git clone https://github.com/ifago1/IFago-outrank.git /opt/outreach
+cd /opt/outreach
+sudo bash scripts/install.sh
+```
+
+Installeert Postgres 16, Redis 7, Node 22, Caddy met auto-HTTPS,
+systemd units voor web + worker + scheduler. Idempotent en
+update-friendly (`sudo bash scripts/install.sh --update`).
+
+**Docker Compose** (alternatief — als je liever container-isolation hebt):
 
 ```bash
 git clone https://github.com/ifago1/IFago-outrank.git /opt/outreach
