@@ -23,7 +23,8 @@
     "send-tick": "tsx scripts/send-tick.ts",
     "worker": "tsx scripts/worker.ts",
     "schedule-ticks": "tsx scripts/schedule-ticks.ts",
-    "gdpr": "tsx scripts/gdpr.ts"
+    "gdpr": "tsx scripts/gdpr.ts",
+    "setup": "tsx scripts/setup.ts"
   },
   "dependencies": {
     "@outreach/ai-personalization": "workspace:*",

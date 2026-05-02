@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // Standalone output bundles only the runtime deps we actually use into
+  // .next/standalone — keeps the production Docker image ~50 MB instead
+  // of ~500 MB, and removes the need to copy node_modules at runtime.
+  output: "standalone",
   // typedRoutes requires a fresh build before each typecheck; off until we
   // wire that ordering through CI.
   transpilePackages: [

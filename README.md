@@ -45,7 +45,21 @@ automatische opvolging en reply-detectie.
 └── .env.example
 ```
 
-## Vereisten
+## VPS deploy in 5 minuten
+
+Voor productie op een eigen VPS — zie **[DEPLOY.md](./DEPLOY.md)**:
+één-host Docker Compose stack met Postgres, Redis, dashboard, BullMQ
+worker, en Caddy met automatische HTTPS via Let's Encrypt. Setup-wizard
+genereert alle env-vars en secrets.
+
+```bash
+git clone https://github.com/ifago1/IFago-outrank.git /opt/outreach
+cd /opt/outreach
+pnpm setup                                          # interactive .env
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+## Vereisten (lokale dev)
 
 - Node.js 20+ (getest op 22; pin via `.nvmrc`)
 - pnpm 9+
