@@ -8,7 +8,7 @@
  * missing or malformed we exit immediately with a list of issues.
  */
 import { closeDb, getDb } from "@outreach/db";
-import { PostmarkMailer } from "@outreach/mailer";
+import { createMailer } from "@outreach/mailer";
 import { DEFAULT_SEND_WINDOW } from "@outreach/sequencer";
 import { AnthropicPersonalizer } from "@outreach/ai-personalization";
 import { closeQueues, closeRedis, createTickWorker } from "@outreach/queue";
@@ -26,13 +26,43 @@ function buildWindow() {
   };
 }
 
-const mailer = new PostmarkMailer({
-  serverToken: cfg.POSTMARK_SERVER_TOKEN,
-  from: cfg.FROM_EMAIL,
-  fromName: cfg.FROM_NAME,
-  ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
-  defaultTag: "outreach",
+const provider = cfg.MAILER_PROVIDER ?? "postmark";
+const mailer = createMailer({
+  provider,
+  ...(provider === "postmark"
+    ? {
+        postmark: {
+          serverToken: cfg.POSTMARK_SERVER_TOKEN!,
+          from: cfg.FROM_EMAIL,
+          fromName: cfg.FROM_NAME,
+          ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
+          defaultTag: "outreach",
+        },
+      }
+    : {
+        smtp: {
+          host: cfg.SMTP_HOST!,
+          port: cfg.SMTP_PORT!,
+          user: cfg.SMTP_USER!,
+          pass: cfg.SMTP_PASS!,
+          ...(cfg.SMTP_SECURE !== undefined ? { secure: cfg.SMTP_SECURE } : {}),
+          ...(cfg.SMTP_MAX_CONNECTIONS !== undefined
+            ? { maxConnections: cfg.SMTP_MAX_CONNECTIONS }
+            : {}),
+          ...(cfg.SMTP_RATE_LIMIT !== undefined
+            ? { rateLimit: cfg.SMTP_RATE_LIMIT }
+            : {}),
+          ...(cfg.SMTP_RATE_DELTA_MS !== undefined
+            ? { rateDelta: cfg.SMTP_RATE_DELTA_MS }
+            : {}),
+          from: cfg.FROM_EMAIL,
+          fromName: cfg.FROM_NAME,
+          ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
+        },
+      }),
 });
+
+console.log(`[worker] mailer provider: ${provider}`);
 
 const personalizer = cfg.ANTHROPIC_API_KEY
   ? new AnthropicPersonalizer({

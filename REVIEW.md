@@ -185,11 +185,54 @@ persoonsgegevens). FK cascade dekt emails_sent + campaign_leads.
 
 ---
 
-## 6. Eindstand
+## 6. Pass 5 — SMTP-provider support
+
+### 6.1 ✅ SmtpMailer (nodemailer)
+**Was:** alleen Postmark als productie-mailer.
+**Nu:** nieuwe `SmtpMailer` in `packages/mailer/src/smtp.ts` met
+nodemailer onder de motorkap. Connection pooling (default 5 parallel),
+optionele rate limiting, dezelfde headers als Postmark
+(In-Reply-To/References voor threading, List-Unsubscribe + 8058
+one-click). Test-injection via `MinimalTransporter` interface zodat
+unit-tests geen echte SMTP-socket openen.
+
+### 6.2 ✅ Mailer factory
+**Was:** `new PostmarkMailer(...)` direct in de scripts.
+**Nu:** `createMailer({ provider, postmark?, smtp? })` factory in
+`packages/mailer/src/factory.ts`. `worker.ts` en `send-tick.ts`
+gebruiken dezelfde factory; switch op `MAILER_PROVIDER` env. Wired in
+`/api` routes blijft Postmark-only (de webhook-handler is
+provider-specifiek).
+
+### 6.3 ✅ Config: provider-conditional validatie
+**Was:** `POSTMARK_SERVER_TOKEN` was altijd vereist.
+**Nu:** `MAILER_PROVIDER=postmark` (default) → POSTMARK_SERVER_TOKEN
+vereist; `MAILER_PROVIDER=smtp` → SMTP_HOST/PORT/USER/PASS vereist.
+Cross-field check in `loadConfig` rapporteert alle ontbrekende velden
+in één keer.
+
+### 6.4 Test coverage
+
+| Package | Pass 4 | Pass 5 | Delta |
+|---|---|---|---|
+| mailer | 3 | **15** | +6 SmtpMailer + +4 factory + +2 verfijning |
+| config | 5 | **8** | +3 SMTP cross-field + happy-path |
+| **Totaal** | **142** | **149** (149 unit + 8 int) | +7 unit |
+
+---
+
+## 7. Eindstand
 
 Implementatie-volledig voor MVP + production. Wat er nog bewust open
-ligt is alleen **materiealiseerde stats-views**, en die zijn pas
-relevant bij >100k emails sent.
+ligt is alleen **materiealiseerde stats-views** (relevant bij >100k
+emails sent).
+
+**Mailer-provider matrix:**
+
+| Provider | Pro | Con |
+|---|---|---|
+| Postmark | DKIM/SPF auto, bounce/inbound webhook out-of-the-box, IP-warmup gedaan | Kost ~$/maand |
+| SMTP | Eigen domein/server, geen abonnement | DKIM/SPF zelf inrichten, async-bounce-detectie vereist IMAP, slechtere deliverability bij koude IP |
 
 De codebase telt nu:
 - **13 packages** + 1 Next.js app

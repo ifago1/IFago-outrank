@@ -32,7 +32,26 @@ const DiscoverSlice = z.object({
 
 /** Mailer — send-tick + worker. */
 const MailerSlice = z.object({
-  POSTMARK_SERVER_TOKEN: nonEmpty,
+  // Provider selection. Default postmark for backward-compat.
+  MAILER_PROVIDER: z.enum(["postmark", "smtp"]).optional(),
+
+  // Postmark (required when MAILER_PROVIDER=postmark; checked post-parse)
+  POSTMARK_SERVER_TOKEN: z.string().optional(),
+
+  // SMTP (required when MAILER_PROVIDER=smtp; checked post-parse)
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: integer.optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_SECURE: z
+    .enum(["true", "false"])
+    .transform((v) => v === "true")
+    .optional(),
+  SMTP_MAX_CONNECTIONS: integer.optional(),
+  SMTP_RATE_LIMIT: integer.optional(),
+  SMTP_RATE_DELTA_MS: integer.optional(),
+
+  // Common
   FROM_EMAIL: z.string().email(),
   FROM_NAME: nonEmpty,
   REPLY_TO_EMAIL: z.string().email().optional(),
@@ -54,6 +73,43 @@ const MailerSlice = z.object({
   BOUNCE_WINDOW: integer.optional(),
   BOUNCE_MIN_SENT: integer.optional(),
 });
+
+/**
+ * Mailer-specific cross-field validation — runs only on profiles that
+ * include MailerSlice. Kept here to share between profiles without
+ * losing the `.merge()`-friendly ZodObject type.
+ */
+function validateMailerCrossFields(
+  vals: Record<string, unknown>,
+): z.ZodIssue[] {
+  const provider = (vals["MAILER_PROVIDER"] ?? "postmark") as
+    | "postmark"
+    | "smtp";
+  const issues: z.ZodIssue[] = [];
+  if (provider === "postmark" && !vals["POSTMARK_SERVER_TOKEN"]) {
+    issues.push({
+      code: z.ZodIssueCode.custom,
+      path: ["POSTMARK_SERVER_TOKEN"],
+      message:
+        "POSTMARK_SERVER_TOKEN is required when MAILER_PROVIDER=postmark (default)",
+    });
+  }
+  if (provider === "smtp") {
+    for (const k of ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"]) {
+      if (!vals[k]) {
+        issues.push({
+          code: z.ZodIssueCode.custom,
+          path: [k],
+          message: `${k} is required when MAILER_PROVIDER=smtp`,
+        });
+      }
+    }
+  }
+  return issues;
+}
+
+/** Profiles that include MailerSlice — used to gate the cross-field check. */
+const MAILER_PROFILES = new Set<string>(["send-tick", "worker", "web"]);
 
 /** Inbound webhook handler. */
 const WebhookSlice = z.object({
@@ -128,6 +184,18 @@ export function loadConfig<P extends Profile>(
   if (!parsed.success) {
     throw new ConfigError(profile, parsed.error.issues);
   }
+
+  // Cross-field validation that doesn't fit neatly into a single Zod
+  // schema (provider-conditional required fields).
+  if (MAILER_PROFILES.has(profile)) {
+    const mailerIssues = validateMailerCrossFields(
+      parsed.data as Record<string, unknown>,
+    );
+    if (mailerIssues.length > 0) {
+      throw new ConfigError(profile, mailerIssues);
+    }
+  }
+
   return parsed.data as z.infer<(typeof PROFILES)[P]>;
 }
 

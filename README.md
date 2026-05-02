@@ -134,6 +134,40 @@ Pages beschikbaar op http://localhost:3000:
 - **/stats** — Totalen, reply rate %, bounce rate %, per-campagne breakdown.
 - **/settings** — Env-var checklist (read-only): wat is er al geconfigureerd, wat ontbreekt.
 
+## Mail-provider keuze: Postmark of SMTP
+
+Twee implementaties van het `Mailer` interface:
+
+```env
+# Default: Postmark (HTTP API — auto SPF/DKIM/DMARC + bounce-webhook)
+MAILER_PROVIDER=postmark
+POSTMARK_SERVER_TOKEN=...
+
+# Of: jouw eigen SMTP-server
+MAILER_PROVIDER=smtp
+SMTP_HOST=smtp.fastmail.com
+SMTP_PORT=587               # 587 = STARTTLS, 465 = implicit TLS
+SMTP_USER=jouw@agency.nl
+SMTP_PASS=app-password
+SMTP_SECURE=false           # true voor 465, false voor 587
+SMTP_MAX_CONNECTIONS=5      # parallel connecties (optioneel)
+SMTP_RATE_LIMIT=10          # max berichten per SMTP_RATE_DELTA_MS (optioneel)
+SMTP_RATE_DELTA_MS=1000
+```
+
+`@outreach/config` weigert te starten als de gekozen provider niet
+volledig gedoceerd is. SMTP gebruikt nodemailer onder de motorkap met
+connection pooling, optionele rate limiting, en exact dezelfde headers
+(threading via `In-Reply-To`/`References`, RFC 8058 `List-Unsubscribe`)
+als de Postmark-implementatie.
+
+> **Async bounces bij SMTP**: synchronous SMTP-fouten (550 unknown user
+> tijdens de SMTP-transactie) komen direct terug en worden door het
+> sequencer-error-pad opgepikt. NDR-bounces die later als reply
+> binnenkomen vereisen IMAP-polling — niet ingebouwd, niet kritiek voor
+> MX-gevalideerde lijsten. Wil je full bounce-coverage zonder eigen
+> infra: gebruik Postmark.
+
 ## Production: BullMQ worker
 
 Voor productie draai je niet `send-tick` als cron — je gebruikt BullMQ:

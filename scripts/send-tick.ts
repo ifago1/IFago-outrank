@@ -11,7 +11,7 @@
  */
 import { parseArgs } from "node:util";
 import { closeDb, getDb } from "@outreach/db";
-import { MockMailer, PostmarkMailer, type Mailer } from "@outreach/mailer";
+import { MockMailer, createMailer, type Mailer } from "@outreach/mailer";
 import { runSendTick, DEFAULT_SEND_WINDOW } from "@outreach/sequencer";
 import { AnthropicPersonalizer } from "@outreach/ai-personalization";
 import { loadConfigOrExit } from "@outreach/config";
@@ -53,14 +53,44 @@ async function main(): Promise<void> {
   const opts = parseCliArgs();
   const cfg = loadConfigOrExit("send-tick");
   const db = getDb();
+  const provider = cfg.MAILER_PROVIDER ?? "postmark";
   const mailer: Mailer = opts.dryRun
     ? new MockMailer()
-    : new PostmarkMailer({
-        serverToken: cfg.POSTMARK_SERVER_TOKEN,
-        from: cfg.FROM_EMAIL,
-        fromName: cfg.FROM_NAME,
-        ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
-        defaultTag: "outreach",
+    : createMailer({
+        provider,
+        ...(provider === "postmark"
+          ? {
+              postmark: {
+                serverToken: cfg.POSTMARK_SERVER_TOKEN!,
+                from: cfg.FROM_EMAIL,
+                fromName: cfg.FROM_NAME,
+                ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
+                defaultTag: "outreach",
+              },
+            }
+          : {
+              smtp: {
+                host: cfg.SMTP_HOST!,
+                port: cfg.SMTP_PORT!,
+                user: cfg.SMTP_USER!,
+                pass: cfg.SMTP_PASS!,
+                ...(cfg.SMTP_SECURE !== undefined
+                  ? { secure: cfg.SMTP_SECURE }
+                  : {}),
+                ...(cfg.SMTP_MAX_CONNECTIONS !== undefined
+                  ? { maxConnections: cfg.SMTP_MAX_CONNECTIONS }
+                  : {}),
+                ...(cfg.SMTP_RATE_LIMIT !== undefined
+                  ? { rateLimit: cfg.SMTP_RATE_LIMIT }
+                  : {}),
+                ...(cfg.SMTP_RATE_DELTA_MS !== undefined
+                  ? { rateDelta: cfg.SMTP_RATE_DELTA_MS }
+                  : {}),
+                from: cfg.FROM_EMAIL,
+                fromName: cfg.FROM_NAME,
+                ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
+              },
+            }),
       });
 
   const personalizer = cfg.ANTHROPIC_API_KEY

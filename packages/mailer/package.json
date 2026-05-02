@@ -12,7 +12,11 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "nodemailer": "^6.9.16"
+  },
   "devDependencies": {
+    "@types/nodemailer": "^6.4.17",
     "typescript": "^5.6.2",
     "vitest": "^2.1.1"
   }
