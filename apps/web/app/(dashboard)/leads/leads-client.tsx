@@ -48,7 +48,7 @@ export function LeadsClient({
   const [result, setResult] = useState<AssignLeadsResult | null>(null);
 
   const selectableIds = useMemo(
-    () => rows.filter((r) => r.verifiedContactCount > 0).map((r) => r.businessId),
+    () => rows.filter((r) => r.contactCount > 0).map((r) => r.businessId),
     [rows],
   );
   const allSelected =
@@ -163,10 +163,10 @@ export function LeadsClient({
                     disabled={selectableIds.length === 0}
                     title={
                       selectableIds.length === 0
-                        ? "Geen verifieerbare contacts in deze view"
+                        ? "Geen contacts in deze view — run pnpm enrich"
                         : allSelected
                           ? "Wis selectie"
-                          : "Selecteer alle (met verified contact)"
+                          : "Selecteer alle (met contact)"
                     }
                   />
                 </th>
@@ -216,7 +216,7 @@ function LeadRowView({
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [campaignId, setCampaignId] = useState<string>(campaigns[0]?.id ?? "");
-  const canSelect = row.verifiedContactCount > 0;
+  const canSelect = row.contactCount > 0;
 
   function onAssign() {
     if (!campaignId) return;
@@ -238,7 +238,7 @@ function LeadRowView({
           title={
             canSelect
               ? "Selecteer voor bulk-toewijzing"
-              : "Geen verified contact bij deze business — run pnpm enrich"
+              : "Geen contact bij deze business — run pnpm enrich"
           }
         />
       </td>

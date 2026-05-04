@@ -40,6 +40,9 @@ export async function assignLeadsToCampaign(
     return { ok: false, message: "Campagne niet gevonden." };
   }
 
+  // Pak alle non-DNC contacts. is_verified blijft een info-vlag maar
+  // gate't de UI niet — anders kun je voor enrichment niets toewijzen.
+  // De daadwerkelijke MX-check gebeurt elders (enrich + send-time).
   const eligibleContacts = await db
     .select({ id: contacts.id, businessId: contacts.businessId })
     .from(contacts)
@@ -47,7 +50,6 @@ export async function assignLeadsToCampaign(
       and(
         inArray(contacts.businessId, ids),
         eq(contacts.doNotContact, false),
-        eq(contacts.isVerified, true),
       ),
     );
 
@@ -61,7 +63,7 @@ export async function assignLeadsToCampaign(
     return {
       ok: false,
       message:
-        "Geen verifieerbare contacts (email gevonden + niet DNC) bij deze leads. Run eerst pnpm enrich.",
+        "Geen contacts (email) bij deze leads. Run eerst pnpm enrich om e-mails te verzamelen.",
       assigned: 0,
       skipped: 0,
       skippedNoContact,
