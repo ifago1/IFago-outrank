@@ -92,6 +92,10 @@ async function main(): Promise<void> {
     (await getSetting(db, "PSI_API_KEY")) ??
     process.env["PSI_API_KEY"] ??
     undefined;
+  const hunterApiKey =
+    (await getSetting(db, "HUNTER_API_KEY")) ??
+    process.env["HUNTER_API_KEY"] ??
+    undefined;
 
   const result = await runDiscovery(db, { placesApiKey, geocodingApiKey }, {
     niche: opts.niche,
@@ -100,6 +104,7 @@ async function main(): Promise<void> {
     maxPages: opts.maxPages,
     pageSize: opts.pageSize,
     ...(psiApiKey ? { auditOptions: { psiApiKey } } : {}),
+    ...(hunterApiKey ? { hunterApiKey } : {}),
   });
 
   console.log(`Searched: "${result.query}"`);
@@ -111,6 +116,9 @@ async function main(): Promise<void> {
   console.log(`  Found ${result.found} place(s)`);
   console.log(`  Upserted ${result.upserted} business row(s)`);
   console.log(`  Scored ${result.scored} website(s)`);
+  console.log(
+    `  Enriched ${result.enriched} business(es) — wrote ${result.enrichedContacts} contact(s)`,
+  );
 }
 
 main()

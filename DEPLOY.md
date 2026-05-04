@@ -106,9 +106,18 @@ In de Postmark dashboard:
 ```bash
 sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm discover --niche=kapper --city=Utrecht --radius=5000'
 sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm score-websites'
-sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm enrich --concurrency=10'
 sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm seed-campaign --name="Kappers Utrecht Q2" --niche=kapper --activate'
 sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm assign-leads --campaign="Kappers Utrecht Q2" --no-website --limit=20'
+```
+
+`pnpm discover` doet sinds v0.2 ook automatisch de website-scrape voor
+nieuwe leads — je hoeft niet meer apart `pnpm enrich` te draaien. Voor
+**bestaande** leads die nog geen contact-info hebben loopt elke 6 uur
+de `outreach-enrich` poll en handelt die door de backlog. Wil je 'm
+direct triggeren? Dan nog steeds:
+
+```bash
+sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm enrich --concurrency=10 --limit=200'
 ```
 
 De BullMQ scheduler triggert daarna elke 5 min een tick — niets meer

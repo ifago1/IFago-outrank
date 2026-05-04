@@ -1,5 +1,10 @@
 export { EnrichmentService } from "./service.js";
 export type { BatchResult } from "./service.js";
+export { enrichAndPersist } from "./persist.js";
+export type {
+  EnrichAndPersistOptions,
+  PersistedEnrichment,
+} from "./persist.js";
 export { mapWithConcurrency } from "./concurrency.js";
 export type { SettledResult } from "./concurrency.js";
 export { HunterClient } from "./hunter.js";

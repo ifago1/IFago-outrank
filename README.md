@@ -91,13 +91,14 @@ pnpm dev                         # dashboard op http://localhost:3000
 ## End-to-end voorbeeldcyclus
 
 ```bash
-# 1. Lead Discovery — Google Places
+# 1. Lead Discovery — Google Places (incluis auto-enrichment van nieuwe leads)
 pnpm discover --niche="kapper" --city="Utrecht"
 
 # 2. Website-quality scoring — audit homepages, score `outdated|decent|good`
 pnpm score-websites --limit=20
 
-# 3. Enrichment — vind emailadressen via website + Hunter (optioneel)
+# 3. Enrichment voor bestaande leads — backfill een batch handmatig
+#    (loopt sinds v0.2 ook automatisch elke 6 uur via de BullMQ enrich-poll)
 pnpm enrich --limit=20
 
 # 4. Campagne aanmaken (default 3-step sequence uit het projectplan)
@@ -115,9 +116,9 @@ pnpm send-tick                   # echt sturen
 
 | Script | Wat het doet |
 |---|---|
-| `pnpm discover` | Google Places Text Search → upsert in `businesses` op `place_id` |
+| `pnpm discover` | Google Places Text Search → upsert in `businesses` op `place_id` + auto-enrichment van nieuwe leads (website-scrape, optioneel Hunter) |
 | `pnpm score-websites` | Audit homepages (HTTPS, viewport, table-layout, jQuery 1.x, Flash, X-UA-Compatible, doctype, copyright-year) → bucket `outdated|decent|good` in `businesses.website_quality` |
-| `pnpm enrich` | Voor businesses zonder contact: scrape website (`/contact`, `/over-ons`, etc.) + optioneel Hunter Domain Search → MX-valideren → upsert in `contacts` |
+| `pnpm enrich` | Backfill voor businesses zonder contact óf waarvan de laatste poging > 90 dagen oud is: scrape website (`/contact`, `/over-ons`, etc.) + optioneel Hunter → MX-valideren → upsert in `contacts`. Stempelt `enrichment_attempted_at` zodat herhaalde runs leads zonder mail niet opnieuw scrapen. Loopt ook automatisch via de `outreach-enrich` BullMQ poll (default elke 6u). |
 | `pnpm seed-campaign` | Maakt een campagne + 3-step sequence aan (idempotent op naam) |
 | `pnpm assign-leads` | Filtert contacten en maakt `campaign_leads` aan |
 | `pnpm send-tick` | 1× sequencer-tick: pak due leads, evalueer 5 guards, render template, verstuur via Postmark, log in `emails_sent` |

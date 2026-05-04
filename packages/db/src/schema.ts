@@ -29,6 +29,9 @@ export const businesses = pgTable(
     personalObservationSource: text("personal_observation_source"),
     auditDetail: jsonb("audit_detail"),
     auditedAt: timestamp("audited_at", { withTimezone: true }),
+    enrichmentAttemptedAt: timestamp("enrichment_attempted_at", {
+      withTimezone: true,
+    }),
     discoveredAt: timestamp("discovered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

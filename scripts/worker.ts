@@ -16,6 +16,7 @@ import {
   closeQueues,
   closeRedis,
   createDiscoverWorker,
+  createEnrichWorker,
   createTickWorker,
 } from "@outreach/queue";
 import { loadConfigOrExit } from "@outreach/config";
@@ -50,16 +51,33 @@ const discoverWorker = createDiscoverWorker({
       (await getSetting(db, "GOOGLE_GEOCODING_API_KEY")) ??
       process.env["GOOGLE_GEOCODING_API_KEY"] ??
       placesApiKey;
+    const hunterApiKey =
+      (await getSetting(db, "HUNTER_API_KEY")) ??
+      process.env["HUNTER_API_KEY"];
     return {
       db,
       googleApiKey: placesApiKey,
       ...(geocodingApiKey ? { geocodingApiKey } : {}),
+      ...(hunterApiKey ? { hunterApiKey } : {}),
+    };
+  },
+});
+
+const enrichWorker = createEnrichWorker({
+  buildContext: async () => {
+    const db = getDb();
+    const hunterApiKey =
+      (await getSetting(db, "HUNTER_API_KEY")) ??
+      process.env["HUNTER_API_KEY"];
+    return {
+      db,
+      ...(hunterApiKey ? { hunterApiKey } : {}),
     };
   },
 });
 
 console.log(
-  "[worker] tick + discover workers started — waiting for jobs",
+  "[worker] tick + discover + enrich workers started — waiting for jobs",
 );
 
 async function shutdown(signal: string): Promise<void> {
@@ -67,6 +85,7 @@ async function shutdown(signal: string): Promise<void> {
   try {
     await tickWorker.close();
     await discoverWorker.close();
+    await enrichWorker.close();
     await closeQueues();
     await closeRedis();
     await closeDb();

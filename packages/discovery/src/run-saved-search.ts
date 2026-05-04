@@ -23,11 +23,20 @@ export interface SavedSearchRunResult {
  * Geocoding) or a {placesApiKey, geocodingApiKey} pair when you want
  * separate keys.
  */
+export interface RunSavedSearchOptions {
+  auditOptions?: Pick<
+    CompositeAuditOptions,
+    "psiApiKey" | "anthropicApiKey" | "aiModel"
+  >;
+  /** Optional Hunter API key for inline auto-enrichment of new leads. */
+  hunterApiKey?: string;
+}
+
 export async function runSavedSearch(
   db: Db,
   keys: GoogleKeys | string,
   search: SavedSearch,
-  auditOptions?: Pick<CompositeAuditOptions, "psiApiKey" | "anthropicApiKey" | "aiModel">,
+  opts: RunSavedSearchOptions = {},
 ): Promise<SavedSearchRunResult> {
   const now = new Date();
   try {
@@ -38,7 +47,8 @@ export async function runSavedSearch(
         ? { radiusMeters: search.radiusMeters }
         : {}),
       maxPages: search.maxPages,
-      ...(auditOptions ? { auditOptions } : {}),
+      ...(opts.auditOptions ? { auditOptions: opts.auditOptions } : {}),
+      ...(opts.hunterApiKey ? { hunterApiKey: opts.hunterApiKey } : {}),
     });
 
     await db

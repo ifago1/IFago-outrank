@@ -5,4 +5,7 @@ export type {
   GoogleKeys,
 } from "./run-discovery.js";
 export { runSavedSearch, pickDueSearches } from "./run-saved-search.js";
-export type { SavedSearchRunResult } from "./run-saved-search.js";
+export type {
+  RunSavedSearchOptions,
+  SavedSearchRunResult,
+} from "./run-saved-search.js";

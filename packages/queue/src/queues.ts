@@ -9,6 +9,7 @@ import { getRedisConnection } from "./connection.js";
 // separator internally). Use `-` instead.
 export const TICK_QUEUE = "outreach-tick";
 export const DISCOVER_QUEUE = "outreach-discover";
+export const ENRICH_QUEUE = "outreach-enrich";
 
 export interface TickJobData {
   /** Server time the tick was scheduled at, ISO 8601. */
@@ -19,8 +20,13 @@ export interface DiscoverJobData {
   scheduledAt: string;
 }
 
+export interface EnrichJobData {
+  scheduledAt: string;
+}
+
 let _tickQueue: Queue<TickJobData> | undefined;
 let _discoverQueue: Queue<DiscoverJobData> | undefined;
+let _enrichQueue: Queue<EnrichJobData> | undefined;
 
 const baseJobOpts = {
   removeOnComplete: { count: 100 },
@@ -45,6 +51,15 @@ export function getDiscoverQueue(): Queue<DiscoverJobData> {
     defaultJobOptions: baseJobOpts,
   });
   return _discoverQueue;
+}
+
+export function getEnrichQueue(): Queue<EnrichJobData> {
+  if (_enrichQueue) return _enrichQueue;
+  _enrichQueue = new Queue<EnrichJobData>(ENRICH_QUEUE, {
+    connection: getRedisConnection(),
+    defaultJobOptions: baseJobOpts,
+  });
+  return _enrichQueue;
 }
 
 export interface ScheduleOptions {
@@ -87,6 +102,24 @@ export async function scheduleRepeatingDiscoverPoll(
   );
 }
 
+/**
+ * Periodically scans `businesses` for rows with a websiteUrl that have
+ * never been enriched (or whose enrichment is older than the worker's
+ * stale-threshold) and runs the website-scraper / Hunter pipeline on
+ * a small batch each fire. Default cadence: every 6 hours.
+ */
+export async function scheduleRepeatingEnrichPoll(
+  opts: ScheduleOptions = {},
+): Promise<void> {
+  const queue = getEnrichQueue();
+  const repeat: RepeatOptions = { every: opts.everyMs ?? 6 * 60 * 60 * 1000 };
+  await queue.add(
+    "enrich-poll",
+    { scheduledAt: new Date().toISOString() },
+    { repeat, jobId: opts.jobId ?? "enrich-poll-repeating" },
+  );
+}
+
 export async function closeQueues(): Promise<void> {
   if (_tickQueue) {
     await _tickQueue.close();
@@ -95,6 +128,10 @@ export async function closeQueues(): Promise<void> {
   if (_discoverQueue) {
     await _discoverQueue.close();
     _discoverQueue = undefined;
+  }
+  if (_enrichQueue) {
+    await _enrichQueue.close();
+    _enrichQueue = undefined;
   }
 }
 
