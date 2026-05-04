@@ -30,6 +30,7 @@
     "@outreach/ai-personalization": "workspace:*",
     "@outreach/config": "workspace:*",
     "@outreach/db": "workspace:*",
+    "@outreach/discovery": "workspace:*",
     "@outreach/enrichment": "workspace:*",
     "@outreach/geocoding": "workspace:*",
     "@outreach/mailer": "workspace:*",
