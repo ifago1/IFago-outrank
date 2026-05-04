@@ -153,6 +153,32 @@ export const emailsSent = pgTable("emails_sent", {
  *                              creates a lockout / privilege-escalation
  *                              footgun
  */
+/**
+ * Saved discovery search — define once, the scheduler runs it on its
+ * configured interval and upserts new businesses into the leads pool.
+ */
+export const savedSearches = pgTable("saved_searches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  niche: text("niche").notNull(),
+  city: text("city").notNull(),
+  /** Optional radius in meters; without it the search is text-only. */
+  radiusMeters: integer("radius_meters"),
+  /** Pages of 20 results to walk; max 3. */
+  maxPages: integer("max_pages").notNull().default(1),
+  /** When false, the scheduler skips this search but you can still run it manually. */
+  scheduleEnabled: boolean("schedule_enabled").notNull().default(true),
+  /** Re-run cadence in days. Default 7 = weekly refresh. */
+  scheduleIntervalDays: integer("schedule_interval_days").notNull().default(7),
+  /** Set by the scheduler / manual run — last completed run, regardless of result. */
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  /** JSON blob with the most recent run's outcome (found/upserted/error). */
+  lastRunResult: jsonb("last_run_result"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -183,3 +209,5 @@ export type EmailSent = typeof emailsSent.$inferSelect;
 export type Unsubscribe = typeof unsubscribes.$inferSelect;
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
+export type SavedSearch = typeof savedSearches.$inferSelect;
+export type NewSavedSearch = typeof savedSearches.$inferInsert;

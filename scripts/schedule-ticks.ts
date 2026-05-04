@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 import {
   closeQueues,
   closeRedis,
+  scheduleRepeatingDiscoverPoll,
   scheduleRepeatingTick,
 } from "@outreach/queue";
 import { loadConfigOrExit } from "@outreach/config";
@@ -17,24 +18,34 @@ async function main(): Promise<void> {
   loadConfigOrExit("schedule-ticks");
   const { values } = parseArgs({
     options: {
-      "every-ms": { type: "string", default: String(5 * 60 * 1000) },
+      "tick-every-ms": { type: "string", default: String(5 * 60 * 1000) },
+      "discover-every-ms": {
+        type: "string",
+        default: String(60 * 60 * 1000),
+      },
       help: { type: "boolean", short: "h", default: false },
     },
     strict: true,
   });
   if (values.help) {
     console.log(`
-Usage: pnpm schedule-ticks [--every-ms=300000]
+Usage: pnpm schedule-ticks [--tick-every-ms=300000] [--discover-every-ms=3600000]
 
-Registers the recurring "outreach:tick" job. Run once at deploy time;
-re-running is a no-op (BullMQ dedupes repeatables).
+Registers two recurring BullMQ jobs:
+  outreach-tick       (default every 5 min)  — sequencer send-tick
+  outreach-discover   (default every 60 min) — saved-searches poll
+
+Idempotent: re-running with the same intervals is a no-op.
 `);
     process.exit(0);
   }
 
-  await scheduleRepeatingTick({ everyMs: Number(values["every-ms"]) });
+  const tickMs = Number(values["tick-every-ms"]);
+  const discoverMs = Number(values["discover-every-ms"]);
+  await scheduleRepeatingTick({ everyMs: tickMs });
+  await scheduleRepeatingDiscoverPoll({ everyMs: discoverMs });
   console.log(
-    `Scheduled repeating tick (every ${values["every-ms"]} ms).`,
+    `Scheduled tick=${tickMs}ms + discover-poll=${discoverMs}ms.`,
   );
 }
 

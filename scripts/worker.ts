@@ -11,14 +11,19 @@
  * we read these from process.env so a fresh install boots even before
  * you've opened /settings.
  */
-import { closeDb, getDb } from "@outreach/db";
-import { closeQueues, closeRedis, createTickWorker } from "@outreach/queue";
+import { closeDb, getDb, getSetting } from "@outreach/db";
+import {
+  closeQueues,
+  closeRedis,
+  createDiscoverWorker,
+  createTickWorker,
+} from "@outreach/queue";
 import { loadConfigOrExit } from "@outreach/config";
 import { buildRuntimeConfig } from "./lib/runtime-config.js";
 
 const cfg = loadConfigOrExit("worker");
 
-const worker = createTickWorker({
+const tickWorker = createTickWorker({
   buildConfig: () =>
     buildRuntimeConfig({
       db: getDb(),
@@ -34,12 +39,25 @@ const worker = createTickWorker({
   },
 });
 
-console.log("[worker] tick worker started — waiting for jobs");
+const discoverWorker = createDiscoverWorker({
+  buildContext: async () => {
+    const db = getDb();
+    // Settings tab can override the env-supplied key.
+    const dbKey = await getSetting(db, "GOOGLE_PLACES_API_KEY");
+    const googleApiKey = dbKey ?? process.env["GOOGLE_PLACES_API_KEY"];
+    return { db, googleApiKey };
+  },
+});
+
+console.log(
+  "[worker] tick + discover workers started — waiting for jobs",
+);
 
 async function shutdown(signal: string): Promise<void> {
   console.log(`[worker] received ${signal}, draining...`);
   try {
-    await worker.close();
+    await tickWorker.close();
+    await discoverWorker.close();
     await closeQueues();
     await closeRedis();
     await closeDb();

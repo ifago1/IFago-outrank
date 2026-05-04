@@ -1,5 +1,5 @@
 {
-  "name": "@outreach/queue",
+  "name": "@outreach/discovery",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,10 +14,9 @@
   },
   "dependencies": {
     "@outreach/db": "workspace:*",
-    "@outreach/discovery": "workspace:*",
-    "@outreach/sequencer": "workspace:*",
-    "bullmq": "^5.34.5",
-    "ioredis": "^5.4.2"
+    "@outreach/geocoding": "workspace:*",
+    "@outreach/places": "workspace:*",
+    "drizzle-orm": "^0.36.4"
   },
   "devDependencies": {
     "typescript": "^5.6.2",

@@ -8,36 +8,47 @@ import { getRedisConnection } from "./connection.js";
 // BullMQ rejects queue names containing `:` (it uses colons as Redis key
 // separator internally). Use `-` instead.
 export const TICK_QUEUE = "outreach-tick";
+export const DISCOVER_QUEUE = "outreach-discover";
 
 export interface TickJobData {
   /** Server time the tick was scheduled at, ISO 8601. */
   scheduledAt: string;
 }
 
-/**
- * Returns the singleton tick queue. Adds the repeating job lazily — calling
- * this from a server-startup script ensures one tick per `everyMs` even
- * across pod restarts (BullMQ dedupes the repeatable by ID).
- */
+export interface DiscoverJobData {
+  scheduledAt: string;
+}
+
 let _tickQueue: Queue<TickJobData> | undefined;
+let _discoverQueue: Queue<DiscoverJobData> | undefined;
+
+const baseJobOpts = {
+  removeOnComplete: { count: 100 },
+  removeOnFail: { count: 500 },
+  attempts: 3,
+  backoff: { type: "exponential" as const, delay: 30_000 },
+};
 
 export function getTickQueue(): Queue<TickJobData> {
   if (_tickQueue) return _tickQueue;
   _tickQueue = new Queue<TickJobData>(TICK_QUEUE, {
     connection: getRedisConnection(),
-    defaultJobOptions: {
-      // Avoid Redis bloat from completed tick jobs (we run forever).
-      removeOnComplete: { count: 100 },
-      removeOnFail: { count: 500 },
-      attempts: 3,
-      backoff: { type: "exponential", delay: 30_000 },
-    },
+    defaultJobOptions: baseJobOpts,
   });
   return _tickQueue;
 }
 
-export interface ScheduleTickOptions {
-  /** Tick frequency in ms. Default: every 5 minutes. */
+export function getDiscoverQueue(): Queue<DiscoverJobData> {
+  if (_discoverQueue) return _discoverQueue;
+  _discoverQueue = new Queue<DiscoverJobData>(DISCOVER_QUEUE, {
+    connection: getRedisConnection(),
+    defaultJobOptions: baseJobOpts,
+  });
+  return _discoverQueue;
+}
+
+export interface ScheduleOptions {
+  /** Frequency in ms. Different defaults for tick vs discover. */
   everyMs?: number;
   /** Override the repeatable job ID (idempotent). */
   jobId?: string;
@@ -48,18 +59,31 @@ export interface ScheduleTickOptions {
  * repeatables by `key`, which is derived from `repeat` + `name`).
  */
 export async function scheduleRepeatingTick(
-  opts: ScheduleTickOptions = {},
+  opts: ScheduleOptions = {},
 ): Promise<void> {
   const queue = getTickQueue();
-  const everyMs = opts.everyMs ?? 5 * 60 * 1000;
-  const repeat: RepeatOptions = { every: everyMs };
+  const repeat: RepeatOptions = { every: opts.everyMs ?? 5 * 60 * 1000 };
   await queue.add(
     "tick",
     { scheduledAt: new Date().toISOString() },
-    {
-      repeat,
-      jobId: opts.jobId ?? "tick-repeating",
-    },
+    { repeat, jobId: opts.jobId ?? "tick-repeating" },
+  );
+}
+
+/**
+ * Polls saved_searches table for due searches; default cadence is every
+ * hour. The handler walks the table and triggers any search whose
+ * interval has elapsed.
+ */
+export async function scheduleRepeatingDiscoverPoll(
+  opts: ScheduleOptions = {},
+): Promise<void> {
+  const queue = getDiscoverQueue();
+  const repeat: RepeatOptions = { every: opts.everyMs ?? 60 * 60 * 1000 };
+  await queue.add(
+    "discover-poll",
+    { scheduledAt: new Date().toISOString() },
+    { repeat, jobId: opts.jobId ?? "discover-poll-repeating" },
   );
 }
 
@@ -68,4 +92,11 @@ export async function closeQueues(): Promise<void> {
     await _tickQueue.close();
     _tickQueue = undefined;
   }
+  if (_discoverQueue) {
+    await _discoverQueue.close();
+    _discoverQueue = undefined;
+  }
 }
+
+/** Backward-compat alias. */
+export type ScheduleTickOptions = ScheduleOptions;

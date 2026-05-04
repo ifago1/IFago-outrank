@@ -11,6 +11,9 @@ const config: NextConfig = {
   transpilePackages: [
     "@outreach/config",
     "@outreach/db",
+    "@outreach/discovery",
+    "@outreach/geocoding",
+    "@outreach/places",
     "@outreach/sequencer",
     "@outreach/templates",
     "@outreach/mailer",

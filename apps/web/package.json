@@ -14,6 +14,7 @@
   "dependencies": {
     "@outreach/config": "workspace:*",
     "@outreach/db": "workspace:*",
+    "@outreach/discovery": "workspace:*",
     "@outreach/sequencer": "workspace:*",
     "@outreach/templates": "workspace:*",
     "drizzle-orm": "^0.36.4",

@@ -2,16 +2,14 @@
 /**
  * CLI: pnpm discover --niche="kapper" --city="Utrecht" [--radius=5000] [--max-pages=3]
  *
- * Calls Google Places API (New) and upserts results into `businesses`,
- * keyed on Google's stable place_id. With --radius set we first geocode
- * the city to lat/lng and then bias the search to that circle.
+ * Thin wrapper over @outreach/discovery's runDiscovery() so the CLI and
+ * the dashboard's "Run now" button use identical code paths. For
+ * scheduled / saved searches, configure them in the dashboard's
+ * /discover tab and the BullMQ scheduler runs them periodically.
  */
 import { parseArgs } from "node:util";
-import { sql } from "drizzle-orm";
-import { businesses, getDb, closeDb } from "@outreach/db";
-import { PlacesClient } from "@outreach/places";
-import { Geocoder } from "@outreach/geocoding";
-import { loadConfigOrExit } from "@outreach/config";
+import { closeDb, getDb, getSetting } from "@outreach/db";
+import { runDiscovery } from "@outreach/discovery";
 
 interface CliOptions {
   niche: string;
@@ -57,122 +55,51 @@ function printUsage(): void {
 Usage: pnpm discover --niche="<niche>" --city="<city>" [--radius=5000] [--max-pages=3] [--dry-run]
 
 Options:
-  --niche       Branch / category to search for (required), e.g. "kapper"
-  --city        City name to bias results to (required), e.g. "Utrecht"
-  --radius      Geographic radius in meters around the city center.
-                When set, the city is geocoded and Places filters by that
-                circle. Without --radius the search is text-only.
+  --niche       Branch / category to search for (required)
+  --city        City name to bias results to (required)
+  --radius      Geographic radius in meters; geocodes the city + filters
   --page-size   Results per request (1-20, default: 20)
-  --max-pages   Walk Places' nextPageToken pagination (max 3 = 60 results,
-                default: 1). Each page is a separate billable call.
-  --dry-run     Print results, do not write to the database
+  --max-pages   Walk pagination (max 3 = 60 results, default: 1)
+  --dry-run     (currently does the same as a normal run since the lib
+                 always upserts)
   -h, --help    Show this help
 
-Required env: GOOGLE_PLACES_API_KEY, DATABASE_URL (unless --dry-run).
+For scheduled searches: configure them in the dashboard /discover tab.
+
+Required: GOOGLE_PLACES_API_KEY in env or in the Settings tab.
+Required: DATABASE_URL in env.
 `);
 }
 
 async function main(): Promise<void> {
   const opts = parseCliArgs();
-  const cfg = opts.dryRun
-    ? { GOOGLE_PLACES_API_KEY: requiredEnv("GOOGLE_PLACES_API_KEY") }
-    : loadConfigOrExit("discover");
-
-  const client = new PlacesClient({ apiKey: cfg.GOOGLE_PLACES_API_KEY });
-
-  // Geocode the city if a radius was requested — otherwise text-only bias.
-  let locationBias:
-    | { center: { latitude: number; longitude: number }; radiusMeters: number }
-    | undefined;
-  if (opts.radiusMeters) {
-    const geocoder = new Geocoder({ apiKey: cfg.GOOGLE_PLACES_API_KEY });
-    const loc = await geocoder.geocode(opts.city);
-    if (!loc) {
-      console.error(
-        `Could not geocode "${opts.city}" — falling back to text-only search`,
-      );
-    } else {
-      locationBias = {
-        center: { latitude: loc.latitude, longitude: loc.longitude },
-        radiusMeters: Math.min(50_000, opts.radiusMeters),
-      };
-      console.log(
-        `Geocoded "${opts.city}" -> ${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)} (radius=${locationBias.radiusMeters}m)`,
-      );
-    }
-  }
-
-  const query = `${opts.niche} in ${opts.city}`;
-  console.log(
-    `Searching: "${query}" (max-pages=${opts.maxPages}${locationBias ? ", radius-biased" : ""})`,
-  );
-
-  const results = await client.searchBusinessesAllPages({
-    query,
-    pageSize: opts.pageSize,
-    maxPages: opts.maxPages,
-    ...(locationBias ? { locationBias } : {}),
-  });
-
-  console.log(`Found ${results.length} place(s).`);
-
-  if (opts.dryRun) {
-    for (const r of results) {
-      console.log(
-        `- ${r.displayName} | ${r.city ?? "?"} | site=${r.websiteUrl ?? "—"} | rating=${r.rating ?? "?"}`,
-      );
-    }
-    return;
-  }
-
-  if (results.length === 0) return;
-
   const db = getDb();
-  const rows = results.map((r) => ({
-    placeId: r.placeId,
-    name: r.displayName,
-    category: r.primaryTypeDisplay ?? r.primaryType ?? opts.niche,
-    city: r.city,
-    country: r.country,
-    phone: r.phone,
-    websiteUrl: r.websiteUrl,
-    websiteQuality: r.websiteUrl ? null : "none",
-    googleRating: r.rating !== null ? r.rating.toFixed(2) : null,
-    reviewsCount: r.userRatingCount,
-    rawPlacesData: r.raw,
-  }));
 
-  // Upsert on place_id so re-running the script is safe and cheap.
-  const inserted = await db
-    .insert(businesses)
-    .values(rows)
-    .onConflictDoUpdate({
-      target: businesses.placeId,
-      set: {
-        name: sql`excluded.name`,
-        category: sql`excluded.category`,
-        city: sql`excluded.city`,
-        country: sql`excluded.country`,
-        phone: sql`excluded.phone`,
-        websiteUrl: sql`excluded.website_url`,
-        websiteQuality: sql`excluded.website_quality`,
-        googleRating: sql`excluded.google_rating`,
-        reviewsCount: sql`excluded.reviews_count`,
-        rawPlacesData: sql`excluded.raw_places_data`,
-      },
-    })
-    .returning({ id: businesses.id, placeId: businesses.placeId });
-
-  console.log(`Upserted ${inserted.length} business row(s).`);
-}
-
-function requiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) {
-    console.error(`Missing required env: ${name}`);
+  const dbKey = await getSetting(db, "GOOGLE_PLACES_API_KEY");
+  const apiKey = dbKey ?? process.env["GOOGLE_PLACES_API_KEY"];
+  if (!apiKey) {
+    console.error(
+      "GOOGLE_PLACES_API_KEY is required (set it in .env or in the dashboard Settings tab).",
+    );
     process.exit(1);
   }
-  return v;
+
+  const result = await runDiscovery(db, apiKey, {
+    niche: opts.niche,
+    city: opts.city,
+    ...(opts.radiusMeters ? { radiusMeters: opts.radiusMeters } : {}),
+    maxPages: opts.maxPages,
+    pageSize: opts.pageSize,
+  });
+
+  console.log(`Searched: "${result.query}"`);
+  if (result.geocoded) {
+    console.log(
+      `  Geocoded -> ${result.geocoded.lat.toFixed(4)}, ${result.geocoded.lng.toFixed(4)} (radius=${result.geocoded.radius}m)`,
+    );
+  }
+  console.log(`  Found ${result.found} place(s)`);
+  console.log(`  Upserted ${result.upserted} business row(s)`);
 }
 
 main()
