@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@outreach/config": "workspace:*",
     "@outreach/db": "workspace:*",
     "@outreach/sequencer": "workspace:*",
     "@outreach/templates": "workspace:*",

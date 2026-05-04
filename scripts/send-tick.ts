@@ -2,19 +2,20 @@
 /**
  * CLI: pnpm send-tick [--dry-run] [--batch=50]
  *
- * Runs one pass of the sequencer. Intended to be invoked by cron / a queue
- * worker every few minutes. Safe to run repeatedly.
+ * Runs one pass of the sequencer. Intended to be invoked manually or by
+ * cron — `pnpm worker` already calls runSendTick itself, so you don't
+ * normally need this when the worker service is running.
  *
- * Env requirements are validated by @outreach/config; in --dry-run mode
- * we relax the requirements so you can smoke-test without real Postmark
- * credentials.
+ * Settings come from the DB-backed `settings` table (mailer creds, API
+ * keys, send-window, etc.) with .env as fallback. --dry-run swaps the
+ * mailer for an in-memory stub so you can smoke-test without sending.
  */
 import { parseArgs } from "node:util";
 import { closeDb, getDb } from "@outreach/db";
-import { MockMailer, createMailer, type Mailer } from "@outreach/mailer";
-import { runSendTick, DEFAULT_SEND_WINDOW } from "@outreach/sequencer";
-import { AnthropicPersonalizer } from "@outreach/ai-personalization";
+import { MockMailer } from "@outreach/mailer";
+import { runSendTick } from "@outreach/sequencer";
 import { loadConfigOrExit } from "@outreach/config";
+import { buildRuntimeConfig } from "./lib/runtime-config.js";
 
 interface CliOptions {
   dryRun: boolean;
@@ -53,94 +54,16 @@ async function main(): Promise<void> {
   const opts = parseCliArgs();
   const cfg = loadConfigOrExit("send-tick");
   const db = getDb();
-  const provider = cfg.MAILER_PROVIDER ?? "postmark";
-  const mailer: Mailer = opts.dryRun
-    ? new MockMailer()
-    : createMailer({
-        provider,
-        ...(provider === "postmark"
-          ? {
-              postmark: {
-                serverToken: cfg.POSTMARK_SERVER_TOKEN!,
-                from: cfg.FROM_EMAIL,
-                fromName: cfg.FROM_NAME,
-                ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
-                defaultTag: "outreach",
-              },
-            }
-          : {
-              smtp: {
-                host: cfg.SMTP_HOST!,
-                port: cfg.SMTP_PORT!,
-                user: cfg.SMTP_USER!,
-                pass: cfg.SMTP_PASS!,
-                ...(cfg.SMTP_SECURE !== undefined
-                  ? { secure: cfg.SMTP_SECURE }
-                  : {}),
-                ...(cfg.SMTP_MAX_CONNECTIONS !== undefined
-                  ? { maxConnections: cfg.SMTP_MAX_CONNECTIONS }
-                  : {}),
-                ...(cfg.SMTP_RATE_LIMIT !== undefined
-                  ? { rateLimit: cfg.SMTP_RATE_LIMIT }
-                  : {}),
-                ...(cfg.SMTP_RATE_DELTA_MS !== undefined
-                  ? { rateDelta: cfg.SMTP_RATE_DELTA_MS }
-                  : {}),
-                from: cfg.FROM_EMAIL,
-                fromName: cfg.FROM_NAME,
-                ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
-              },
-            }),
-      });
 
-  const personalizer = cfg.ANTHROPIC_API_KEY
-    ? new AnthropicPersonalizer({
-        apiKey: cfg.ANTHROPIC_API_KEY,
-        ...(cfg.AI_MODEL ? { model: cfg.AI_MODEL } : {}),
-      })
-    : undefined;
-
-  const window = {
-    startHour: cfg.SEND_WINDOW_START ?? DEFAULT_SEND_WINDOW.startHour,
-    endHour: cfg.SEND_WINDOW_END ?? DEFAULT_SEND_WINDOW.endHour,
-    weekdays: cfg.SEND_WEEKDAYS
-      ? cfg.SEND_WEEKDAYS.split(",").map((s) => Number(s.trim()))
-      : DEFAULT_SEND_WINDOW.weekdays,
-  };
-
-  const warmup =
-    cfg.WARMUP_DAYS !== undefined && cfg.WARMUP_FLOOR !== undefined
-      ? { days: cfg.WARMUP_DAYS, floor: cfg.WARMUP_FLOOR }
-      : undefined;
-  const bounceCircuit =
-    cfg.BOUNCE_THRESHOLD !== undefined
-      ? {
-          threshold: cfg.BOUNCE_THRESHOLD,
-          ...(cfg.BOUNCE_WINDOW !== undefined
-            ? { windowSize: cfg.BOUNCE_WINDOW }
-            : {}),
-          ...(cfg.BOUNCE_MIN_SENT !== undefined
-            ? { minSent: cfg.BOUNCE_MIN_SENT }
-            : {}),
-        }
-      : undefined;
-
-  const result = await runSendTick({
+  const config = await buildRuntimeConfig({
     db,
-    mailer,
-    fromEmail: cfg.FROM_EMAIL,
-    fromName: cfg.FROM_NAME,
-    ...(cfg.REPLY_TO_EMAIL ? { replyTo: cfg.REPLY_TO_EMAIL } : {}),
-    publicBaseUrl: cfg.PUBLIC_BASE_URL,
     unsubscribeSecret: cfg.UNSUBSCRIBE_SECRET,
-    dailyLimit: cfg.DAILY_SEND_LIMIT ?? 50,
-    window,
     batchSize: opts.batchSize,
     dryRun: opts.dryRun,
-    ...(warmup ? { warmup } : {}),
-    ...(bounceCircuit ? { bounceCircuit } : {}),
-    personalizer,
+    ...(opts.dryRun ? { mailerOverride: new MockMailer() } : {}),
   });
+
+  const result = await runSendTick(config);
 
   console.log(
     `Tick: evaluated=${result.evaluated} sent=${result.sent} skipped=${result.skipped} failed=${result.failed}`,

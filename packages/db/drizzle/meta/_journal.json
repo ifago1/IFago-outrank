@@ -29,6 +29,13 @@
       "when": 1714780800000,
       "tag": "0003_perf_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1714867200000,
+      "tag": "0004_settings",
+      "breakpoints": true
     }
   ]
 }

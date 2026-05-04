@@ -9,6 +9,7 @@ const config: NextConfig = {
   // typedRoutes requires a fresh build before each typecheck; off until we
   // wire that ordering through CI.
   transpilePackages: [
+    "@outreach/config",
     "@outreach/db",
     "@outreach/sequencer",
     "@outreach/templates",

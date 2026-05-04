@@ -139,6 +139,29 @@ export const emailsSent = pgTable("emails_sent", {
   bounced: boolean("bounced").notNull().default(false),
 });
 
+/**
+ * Runtime-editable settings (mailer creds, API keys, send-window,
+ * warmup, etc). Values here override env vars at request/tick time.
+ *
+ * `is_secret` flips the dashboard form to a masked input — UI never
+ * surfaces the current value to prevent shoulder-surfing leaks.
+ *
+ * A few config items deliberately stay in `.env` only:
+ *   DATABASE_URL, REDIS_URL  — needed to even *read* this table
+ *   UNSUBSCRIBE_SECRET       — changing it invalidates outstanding tokens
+ *   DASHBOARD_AUTH_*         — letting the dashboard mutate its own auth
+ *                              creates a lockout / privilege-escalation
+ *                              footgun
+ */
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  isSecret: boolean("is_secret").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const unsubscribes = pgTable("unsubscribes", {
   email: text("email").primaryKey(),
   unsubscribedAt: timestamp("unsubscribed_at", { withTimezone: true })
@@ -158,3 +181,5 @@ export type NewSequenceStepVariant = typeof sequenceStepVariants.$inferInsert;
 export type CampaignLead = typeof campaignLeads.$inferSelect;
 export type EmailSent = typeof emailsSent.$inferSelect;
 export type Unsubscribe = typeof unsubscribes.$inferSelect;
+export type Setting = typeof settings.$inferSelect;
+export type NewSetting = typeof settings.$inferInsert;

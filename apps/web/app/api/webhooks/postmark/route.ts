@@ -3,6 +3,7 @@ import {
   contacts,
   emailsSent,
   getDb,
+  getSetting,
   unsubscribes,
 } from "@outreach/db";
 import { eq } from "drizzle-orm";
@@ -30,7 +31,9 @@ export const runtime = "nodejs";
  * POSTMARK_INBOUND_WEBHOOK_SECRET. (Postmark itself doesn't sign webhooks.)
  */
 export async function POST(req: Request) {
-  const expected = process.env["POSTMARK_INBOUND_WEBHOOK_SECRET"];
+  // Read the secret from DB (Settings tab) first, .env as fallback.
+  const dbSecret = await getSetting(getDb(), "POSTMARK_INBOUND_WEBHOOK_SECRET");
+  const expected = dbSecret ?? process.env["POSTMARK_INBOUND_WEBHOOK_SECRET"];
   if (!expected) {
     return NextResponse.json(
       { error: "webhook secret not configured" },
