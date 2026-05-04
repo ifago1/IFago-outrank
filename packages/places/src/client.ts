@@ -5,6 +5,7 @@ import type {
 } from "./types.js";
 
 const TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
+const PLACE_DETAIL_URL = "https://places.googleapis.com/v1/places";
 
 /**
  * Field mask sent via the X-Goog-FieldMask header. Charged-per-field by
@@ -68,6 +69,53 @@ export class PlacesClient {
   async searchBusinesses(opts: SearchOptions): Promise<PlaceResult[]> {
     const { results } = await this.searchOnePage(opts);
     return results;
+  }
+
+  /**
+   * Refresh een bestaande place via z'n place_id. Gebruikt door
+   * scripts/refresh-places.ts om bestaande leads bij te werken nadat
+   * we de field-mask hebben uitgebreid (bv. googleMapsUri toegevoegd).
+   *
+   * Veld-budget per call is hetzelfde als bij Text Search — Google
+   * rekent per veld-bundel, dus dit is goedkoper dan een nieuwe search.
+   */
+  async getPlace(placeId: string): Promise<PlaceResult | null> {
+    const trimmed = placeId.trim();
+    if (!trimmed) throw new Error("placeId must be a non-empty string");
+    const id = trimmed.startsWith("places/")
+      ? trimmed.slice("places/".length)
+      : trimmed;
+
+    // Detail-endpoint: field-mask zonder "places."-prefix.
+    const detailFieldMask = FIELD_MASK.split(",")
+      .map((f) => f.replace(/^places\./, ""))
+      .filter((f) => f && f !== "reviews") // reviews zijn alleen via search beschikbaar
+      .join(",");
+
+    const url = `${PLACE_DETAIL_URL}/${encodeURIComponent(id)}?languageCode=${this.defaultLanguage}&regionCode=${this.defaultRegion}`;
+
+    const res = await this.fetchImpl(url, {
+      method: "GET",
+      headers: {
+        "X-Goog-Api-Key": this.apiKey,
+        "X-Goog-FieldMask": detailFieldMask,
+      },
+    });
+
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text();
+      const err = new Error(
+        `Places getPlace failed (${res.status}): ${text.slice(0, 500)}`,
+      ) as PlacesError;
+      err.status = res.status;
+      err.body = text;
+      throw err;
+    }
+
+    const raw = (await res.json()) as RawPlace;
+    if (!raw.id) return null;
+    return normalizePlace(raw);
   }
 
   /**

@@ -16,6 +16,7 @@
     "db:migrate": "pnpm --filter @outreach/db migrate",
     "db:studio": "pnpm --filter @outreach/db studio",
     "discover": "tsx scripts/discover.ts",
+    "refresh-places": "tsx scripts/refresh-places.ts",
     "enrich": "tsx scripts/enrich.ts",
     "score-websites": "tsx scripts/score-websites.ts",
     "seed-campaign": "tsx scripts/seed-campaign.ts",
