@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { rerunAuditForBusiness } from "../actions";
 import type { AiAuditActionResult } from "../types";
 
@@ -54,6 +54,9 @@ export function AuditPanel({
 }) {
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<AiAuditActionResult | null>(null);
+  // Eén keer per businessId triggeren; React 18 strict-mode dubbel
+  // mounten anders.
+  const autoTriggered = useRef(false);
 
   function rerun(useAi: boolean) {
     startTransition(async () => {
@@ -61,6 +64,20 @@ export function AuditPanel({
       setResult(r);
     });
   }
+
+  // Auto-audit op page-load: als er een website is en nog geen audit
+  // bestaat, start Tier 1+2 zonder dat de gebruiker iets moet doen.
+  // AI (Tier 3) blijft expliciet — te duur om automatisch te triggeren.
+  useEffect(() => {
+    if (autoTriggered.current) return;
+    if (!websiteUrl) return;
+    if (auditDetail) return;
+    autoTriggered.current = true;
+    startTransition(async () => {
+      const r = await rerunAuditForBusiness(businessId, { useAi: false });
+      setResult(r);
+    });
+  }, [businessId, websiteUrl, auditDetail]);
 
   if (!websiteUrl) {
     return (
@@ -123,9 +140,9 @@ export function AuditPanel({
 
       {!auditDetail ? (
         <p style={{ ...mutedStyle, margin: 0 }}>
-          Nog geen audit-detail — klik op een van de scan-knoppen om te
-          starten. De HTML + PSI scan duurt ~10s, AI-audit ongeveer
-          20s.
+          {pending
+            ? "Audit loopt — HTML + PSI scan, ~10s. De pagina ververst zichzelf zodra het klaar is."
+            : "Nog geen audit-detail — klik op een van de scan-knoppen om te starten."}
         </p>
       ) : (
         <>
