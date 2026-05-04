@@ -189,6 +189,64 @@ export async function deleteContact(
   return { ok: true, message: "Contact verwijderd." };
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Voeg handmatig een contact toe aan een business. Gebruikt voor
+ * websiteloze leads waar de gebruiker via Google/Facebook/KvK een
+ * email-adres heeft gevonden. source = 'manual' zodat we later kunnen
+ * filteren op handmatig-vs-scraped, en isVerified default false (de
+ * gebruiker kan 'm aanvinken na een MX-check).
+ */
+export async function addManualContact(
+  businessId: string,
+  form: FormData,
+): Promise<ContactActionResult> {
+  if (!businessId) return { ok: false, message: "Geen business-id." };
+  const email = String(form.get("email") ?? "").trim().toLowerCase();
+  const firstName = String(form.get("firstName") ?? "").trim() || null;
+  const lastName = String(form.get("lastName") ?? "").trim() || null;
+  const isVerified = form.get("isVerified") === "on";
+
+  if (!email) return { ok: false, message: "Email is vereist." };
+  if (!EMAIL_RE.test(email)) {
+    return { ok: false, message: "Ongeldig email-adres." };
+  }
+
+  const db = getDb();
+  const [existing] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      and(eq(contacts.businessId, businessId), eq(contacts.email, email)),
+    )
+    .limit(1);
+  if (existing) {
+    return {
+      ok: false,
+      message: "Dit e-mailadres staat al bij deze business.",
+    };
+  }
+
+  await db.insert(contacts).values({
+    businessId,
+    email,
+    firstName,
+    lastName,
+    source: "manual",
+    isVerified,
+    doNotContact: false,
+  });
+
+  revalidatePath(`/leads/${businessId}`);
+  revalidatePath("/leads");
+
+  return {
+    ok: true,
+    message: `Contact ${email} toegevoegd${isVerified ? " (verified)" : " (niet-verified — markeer na MX-check)"}.`,
+  };
+}
+
 /**
  * Re-run de website-audit voor één business — Tier 1 (HTML), Tier 2
  * (PSI als key gezet) én Tier 3 (AI design-audit als ANTHROPIC_API_KEY

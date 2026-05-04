@@ -20,6 +20,7 @@ const FIELD_MASK = [
   "places.internationalPhoneNumber",
   "places.nationalPhoneNumber",
   "places.websiteUri",
+  "places.googleMapsUri",
   "places.rating",
   "places.userRatingCount",
   // Up to 5 reviews per place. Powers AI personalization in the sequencer
@@ -170,6 +171,7 @@ interface RawPlace {
   internationalPhoneNumber?: string;
   nationalPhoneNumber?: string;
   websiteUri?: string;
+  googleMapsUri?: string;
   rating?: number;
   userRatingCount?: number;
 }

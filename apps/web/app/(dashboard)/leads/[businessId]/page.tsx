@@ -12,6 +12,7 @@ import {
 import { PageHeader, Pill } from "../../_ui";
 import { LeadDetailClient, type ContactView, type CampaignMembership } from "./lead-detail-client";
 import { AuditPanel, type AuditDetailView } from "./audit-panel";
+import { ResearchPanel, type PlacesSocialUrls } from "./research-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -163,6 +164,14 @@ export default async function LeadDetailPage({
         memberships={membershipViews}
       />
 
+      <ResearchPanel
+        businessId={businessId}
+        businessName={business.name}
+        city={business.city}
+        phone={business.phone}
+        social={extractSocialUrls(business.rawPlacesData)}
+      />
+
       {lastSent.length > 0 ? (
         <section style={sectionStyle}>
           <h2 style={h2Style}>Verzendgeschiedenis ({lastSent.length})</h2>
@@ -281,6 +290,46 @@ function BusinessFacts({
       </dl>
     </section>
   );
+}
+
+/**
+ * Lokale ondernemers zetten regelmatig een Facebook/Instagram-URL als
+ * "website" in hun Google Business profile. Detect dat zodat we die
+ * URL als directe research-shortcut kunnen tonen op de detailpagina.
+ *
+ * Daarnaast bouwen we een google-maps-link op basis van place_id zodat
+ * de gebruiker direct het GBP-profiel kan openen om bv. de "send
+ * message"-knop te gebruiken of foto's te bekijken voor een
+ * personal-observation.
+ */
+function extractSocialUrls(
+  rawPlacesData: unknown,
+): PlacesSocialUrls {
+  const out: PlacesSocialUrls = {};
+  const raw = rawPlacesData as
+    | {
+        websiteUri?: string;
+        googleMapsUri?: string;
+        id?: string;
+      }
+    | null
+    | undefined;
+
+  const url = raw?.websiteUri;
+  if (url) {
+    if (/facebook\.com\//i.test(url)) out.facebook = url;
+    else if (/instagram\.com\//i.test(url)) out.instagram = url;
+    else if (
+      /linkedin\.com\/|tiktok\.com\/|twitter\.com\/|x\.com\//i.test(url)
+    ) {
+      out.generic = url;
+    }
+  }
+
+  if (raw?.googleMapsUri) {
+    out.googleMapsUri = raw.googleMapsUri;
+  }
+  return out;
 }
 
 function qualityLabel(websiteUrl: string | null, quality: string | null) {
