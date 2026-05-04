@@ -1,0 +1,126 @@
+# Production stack for VPS deployment. One command to start:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Bootstraps:
+#   - Postgres 16 with persistent volume
+#   - Redis 7 with persistent volume
+#   - One-shot migration runner that exits 0 when schema is up to date
+#   - Long-running web (Next.js) + worker (BullMQ) + scheduler (one-shot)
+#   - Caddy reverse proxy with automatic Let's Encrypt HTTPS
+#
+# Required env in .env (run `pnpm setup` to generate it):
+#   DOMAIN, ACME_EMAIL, POSTGRES_PASSWORD, plus the regular .env keys.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: outreach-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-outreach}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-outreach}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-outreach} -d $${POSTGRES_DB:-outreach}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    container_name: outreach-redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: applies pending migrations, exits 0. The web + worker
+  # services depend on this completing successfully before they boot.
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    container_name: outreach-migrate
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["pnpm", "db:migrate"]
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    container_name: outreach-web
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: always
+    expose:
+      - "3000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    container_name: outreach-worker
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: always
+    command: ["pnpm", "worker"]
+
+  # Registers the recurring tick job in BullMQ. Idempotent — runs once
+  # at every `up`, exits 0 immediately. Worker keeps the schedule alive
+  # afterwards.
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    container_name: outreach-scheduler
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["pnpm", "schedule-ticks"]
+    restart: "no"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: outreach-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is required (e.g. outreach.agency.nl)}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required for Let's Encrypt}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:

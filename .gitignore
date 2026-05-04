@@ -1,0 +1,26 @@
+node_modules/
+.pnpm-store/
+dist/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+.eslintcache
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editors
+.vscode/
+.idea/
+.DS_Store
+
+# drizzle (snapshots are regenerated; the journal + migration SQL is committed)
+

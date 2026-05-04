@@ -1,0 +1,46 @@
+# Reverse proxy with automatic HTTPS via Let's Encrypt.
+# DOMAIN + ACME_EMAIL must be set in the environment passed to Caddy
+# (docker-compose.prod.yml does this).
+
+{$DOMAIN} {
+    tls {$ACME_EMAIL}
+    encode gzip zstd
+
+    # Pass-through to the Next.js container.
+    reverse_proxy web:3000
+
+    # Security headers.
+    header {
+        # HTTPS for the next year on this host + subdomains.
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # No MIME-sniffing.
+        X-Content-Type-Options "nosniff"
+        # No framing — the dashboard isn't meant to be embedded.
+        X-Frame-Options "DENY"
+        # Conservative referrer policy.
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Hide the Caddy banner.
+        -Server
+    }
+
+    # Webhook + unsubscribe endpoints get longer body allowances. Postmark
+    # inbound payloads can be 10+ MB when raw email + attachments are
+    # included.
+    @webhooks path /api/webhooks/* /api/unsubscribe*
+    handle @webhooks {
+        request_body {
+            max_size 25MB
+        }
+        reverse_proxy web:3000
+    }
+
+    # Friendly 502 page when the web container is restarting.
+    handle_errors {
+        respond "Outreach dashboard is starting — try again in a few seconds." 502
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
