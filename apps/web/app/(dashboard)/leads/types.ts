@@ -15,3 +15,12 @@ export interface ContactActionResult {
   ok: boolean;
   message: string;
 }
+
+export interface AiAuditActionResult {
+  ok: boolean;
+  message: string;
+  /** Door Claude toegekende score 1-10 (na succes). */
+  score?: number;
+  /** Eén-zin samenvatting (na succes). */
+  summary?: string;
+}

@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { savedSearches, type Db, type SavedSearch } from "@outreach/db";
+import type { CompositeAuditOptions } from "@outreach/website-quality";
 import {
   runDiscovery,
   type DiscoveryResult,
@@ -26,6 +27,7 @@ export async function runSavedSearch(
   db: Db,
   keys: GoogleKeys | string,
   search: SavedSearch,
+  auditOptions?: Pick<CompositeAuditOptions, "psiApiKey" | "anthropicApiKey" | "aiModel">,
 ): Promise<SavedSearchRunResult> {
   const now = new Date();
   try {
@@ -36,6 +38,7 @@ export async function runSavedSearch(
         ? { radiusMeters: search.radiusMeters }
         : {}),
       maxPages: search.maxPages,
+      ...(auditOptions ? { auditOptions } : {}),
     });
 
     await db

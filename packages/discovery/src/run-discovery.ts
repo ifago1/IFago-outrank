@@ -2,7 +2,10 @@ import { eq, sql } from "drizzle-orm";
 import { businesses, type Db } from "@outreach/db";
 import { Geocoder } from "@outreach/geocoding";
 import { PlacesClient } from "@outreach/places";
-import { WebsiteScorer } from "@outreach/website-quality";
+import {
+  runCompositeAudit,
+  type CompositeAuditOptions,
+} from "@outreach/website-quality";
 
 export interface DiscoveryInput {
   niche: string;
@@ -18,6 +21,13 @@ export interface DiscoveryInput {
    * dashboard shows quality immediately. Default: true.
    */
   scoreWebsites?: boolean;
+  /**
+   * Aanvullende audit-keys. Als gezet, worden Tier 2 (PageSpeed
+   * Insights) en/of Tier 3 (AI design-audit) ook tijdens discovery
+   * uitgevoerd. Beide zijn optioneel — ontbrekende key = die tier
+   * wordt overgeslagen.
+   */
+  auditOptions?: Pick<CompositeAuditOptions, "psiApiKey" | "anthropicApiKey" | "aiModel">;
 }
 
 export interface DiscoveryResult {
@@ -148,8 +158,7 @@ export async function runDiscovery(
 
   let scored = 0;
   if (toScore.length > 0) {
-    const scorer = new WebsiteScorer();
-    scored = await scoreInBatches(db, scorer, toScore, 5);
+    scored = await scoreInBatches(db, toScore, 5, input.auditOptions ?? {});
   }
 
   return {
@@ -162,15 +171,18 @@ export async function runDiscovery(
 }
 
 /**
- * Score `concurrency` sites in parallel, write each result as it
- * finishes. Failures are logged + the row keeps its current quality so
- * a follow-up `pnpm score-websites --rescore` can retry.
+ * Audit `concurrency` sites in parallel via runCompositeAudit (Tier 1
+ * altijd, Tier 2/3 als hun keys gezet zijn). Schrijft direct naar
+ * businesses.audit_detail + .website_quality + .audited_at. Failures
+ * worden geslikt zodat één trage PSI-call niet de hele discovery
+ * blokkeert — die rows blijven null en zijn op te halen met
+ * `pnpm score-websites --rescore`.
  */
 async function scoreInBatches(
   db: Db,
-  scorer: WebsiteScorer,
   rows: { id: string; websiteUrl: string | null }[],
   concurrency: number,
+  auditOptions: NonNullable<DiscoveryInput["auditOptions"]>,
 ): Promise<number> {
   let cursor = 0;
   let scored = 0;
@@ -181,14 +193,18 @@ async function scoreInBatches(
       const row = rows[i];
       if (!row || !row.websiteUrl) continue;
       try {
-        const result = await scorer.audit(row.websiteUrl);
+        const result = await runCompositeAudit(row.websiteUrl, auditOptions);
         await db
           .update(businesses)
-          .set({ websiteQuality: result.bucket })
+          .set({
+            websiteQuality: result.bucket,
+            auditDetail: result as unknown as Record<string, unknown>,
+            auditedAt: new Date(),
+          })
           .where(eq(businesses.id, row.id));
         scored += 1;
       } catch {
-        // swallow — the row stays unscored, recoverable via CLI rescore.
+        // swallow — recoverable via CLI rescore.
       }
     }
   });

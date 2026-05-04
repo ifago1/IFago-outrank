@@ -124,10 +124,19 @@ export async function runSearchNow(id: string): Promise<DiscoverActionResult> {
     process.env["GOOGLE_GEOCODING_API_KEY"] ??
     placesApiKey;
 
+  // Tier 2 (PSI) draait automatisch zodra er een PSI-key gezet is.
+  // Tier 3 (AI) draait NIET tijdens discover — te duur per call. AI
+  // staat opt-in via de "Run AI design audit"-knop op de detailpagina.
+  const psiApiKey =
+    (await getSetting(db, "PSI_API_KEY")) ??
+    process.env["PSI_API_KEY"] ??
+    undefined;
+
   const result = await runSavedSearch(
     db,
     { placesApiKey, geocodingApiKey },
     row,
+    psiApiKey ? { psiApiKey } : undefined,
   );
   revalidatePath("/discover");
   revalidatePath("/leads");

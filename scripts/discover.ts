@@ -88,6 +88,10 @@ async function main(): Promise<void> {
     (await getSetting(db, "GOOGLE_GEOCODING_API_KEY")) ??
     process.env["GOOGLE_GEOCODING_API_KEY"] ??
     placesApiKey;
+  const psiApiKey =
+    (await getSetting(db, "PSI_API_KEY")) ??
+    process.env["PSI_API_KEY"] ??
+    undefined;
 
   const result = await runDiscovery(db, { placesApiKey, geocodingApiKey }, {
     niche: opts.niche,
@@ -95,6 +99,7 @@ async function main(): Promise<void> {
     ...(opts.radiusMeters ? { radiusMeters: opts.radiusMeters } : {}),
     maxPages: opts.maxPages,
     pageSize: opts.pageSize,
+    ...(psiApiKey ? { auditOptions: { psiApiKey } } : {}),
   });
 
   console.log(`Searched: "${result.query}"`);

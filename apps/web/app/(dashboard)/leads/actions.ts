@@ -3,12 +3,19 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray } from "drizzle-orm";
 import {
+  businesses,
   campaignLeads,
   campaigns,
   contacts,
   getDb,
+  getSetting,
 } from "@outreach/db";
-import type { AssignLeadsResult, ContactActionResult } from "./types";
+import { runCompositeAudit } from "@outreach/website-quality";
+import type {
+  AiAuditActionResult,
+  AssignLeadsResult,
+  ContactActionResult,
+} from "./types";
 
 /**
  * Assign one or more businesses to a campaign. Resolves businesses →
@@ -180,4 +187,89 @@ export async function deleteContact(
   revalidatePath("/leads");
 
   return { ok: true, message: "Contact verwijderd." };
+}
+
+/**
+ * Re-run de website-audit voor één business — Tier 1 (HTML), Tier 2
+ * (PSI als key gezet) én Tier 3 (AI design-audit als ANTHROPIC_API_KEY
+ * gezet). Slaat het resultaat op in audit_detail + werkt
+ * website_quality bij.
+ *
+ * Specifiek bedoeld als manual button op de detailpagina — discovery
+ * draait nooit Tier 3 inline omdat het ~$0.005 per call kost en je
+ * bij honderden discoveries niet een ongeplande Anthropic-rekening
+ * wilt.
+ */
+export async function rerunAuditForBusiness(
+  businessId: string,
+  opts: { useAi?: boolean } = {},
+): Promise<AiAuditActionResult> {
+  if (!businessId) return { ok: false, message: "Geen business-id." };
+  const db = getDb();
+
+  const [b] = await db
+    .select({
+      id: businesses.id,
+      name: businesses.name,
+      websiteUrl: businesses.websiteUrl,
+    })
+    .from(businesses)
+    .where(eq(businesses.id, businessId))
+    .limit(1);
+  if (!b) return { ok: false, message: "Business niet gevonden." };
+  if (!b.websiteUrl) {
+    return { ok: false, message: "Geen website-URL — niets om te scoren." };
+  }
+
+  const psiApiKey =
+    (await getSetting(db, "PSI_API_KEY")) ?? process.env["PSI_API_KEY"];
+  const anthropicApiKey = opts.useAi
+    ? ((await getSetting(db, "ANTHROPIC_API_KEY")) ??
+      process.env["ANTHROPIC_API_KEY"])
+    : undefined;
+  const aiModel =
+    (await getSetting(db, "AI_MODEL")) ??
+    process.env["AI_MODEL"] ??
+    "claude-haiku-4-5";
+
+  if (opts.useAi && !anthropicApiKey) {
+    return {
+      ok: false,
+      message:
+        "ANTHROPIC_API_KEY ontbreekt — vul in via Settings tab voor AI design-audit.",
+    };
+  }
+
+  try {
+    const result = await runCompositeAudit(b.websiteUrl, {
+      ...(psiApiKey ? { psiApiKey } : {}),
+      ...(anthropicApiKey ? { anthropicApiKey, aiModel } : {}),
+      businessName: b.name,
+    });
+    await db
+      .update(businesses)
+      .set({
+        websiteQuality: result.bucket,
+        auditDetail: result as unknown as Record<string, unknown>,
+        auditedAt: new Date(),
+      })
+      .where(eq(businesses.id, businessId));
+
+    revalidatePath(`/leads/${businessId}`);
+    revalidatePath("/leads");
+
+    const tiers = ["HTML"];
+    if (result.psi?.ok) tiers.push("PSI");
+    if (result.ai?.ok) tiers.push("AI");
+
+    return {
+      ok: true,
+      message: `Audit klaar — ${tiers.join(" + ")}, bucket: ${result.bucket}.`,
+      ...(result.ai?.score != null ? { score: result.ai.score } : {}),
+      ...(result.ai?.summary ? { summary: result.ai.summary } : {}),
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, message: `Audit faalde: ${msg}` };
+  }
 }

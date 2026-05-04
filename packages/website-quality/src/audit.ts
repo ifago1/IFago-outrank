@@ -1,12 +1,18 @@
 import {
+  checkAncientTags,
+  checkCustomFonts,
   checkDoctype,
   checkFavicon,
   checkFlash,
   checkHeavyInlineStyles,
   checkHttpOnly,
   checkIeOnlyMeta,
+  checkModernHero,
   checkOldJquery,
+  checkOpenGraph,
   checkRedirectOffDomain,
+  checkResponsiveImages,
+  checkSiteBuilder,
   checkStaleCopyrightYear,
   checkTableLayout,
   checkTinyHtml,
@@ -181,6 +187,12 @@ export function scoreFromFetch(
   push(checkDoctype(f.htmlLower));
   push(checkTinyHtml(f.htmlLower));
   push(checkStaleCopyrightYear(f.htmlLower, now));
+  push(checkSiteBuilder(f.htmlLower));
+  push(checkOpenGraph(f.htmlLower));
+  push(checkCustomFonts(f.htmlLower));
+  push(checkAncientTags(f.htmlLower));
+  push(checkResponsiveImages(f.htmlLower));
+  push(checkModernHero(f.htmlLower));
 
   const penalty = signals.reduce((sum, s) => sum + s.weight, 0);
   const score = clamp(100 + penalty, 0, 100);

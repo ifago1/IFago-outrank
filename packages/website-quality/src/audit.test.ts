@@ -13,7 +13,9 @@ const MODERN_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta property="og:image" content="https://kapsalon.nl/og.jpg">
   <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">
   <title>Kapsalon de Knipster</title>
 </head>
 <body>

@@ -156,6 +156,103 @@ export function checkTinyHtml(html: string): AuditSignal | null {
   return null;
 }
 
+/**
+ * Detecteer drag-and-drop bouwers waar de bovenkant van het kwaliteits-
+ * spectrum zelden voorbij komt. Geen kapper kiest Wix omdat-ie tevreden
+ * is — pure outreach signal.
+ */
+const SITE_BUILDER_RE =
+  /(parastorage\.com|wix\.com|squarespace\.com|squarespace-cdn|weebly\.com|godaddysites|simplesite|jimdo\.|webflow\.com|strikingly\.com|sitebuilder|123-?reg|webnode|onepager)/i;
+
+export function checkSiteBuilder(html: string): AuditSignal | null {
+  const m = html.match(SITE_BUILDER_RE);
+  if (!m) return null;
+  return {
+    key: "site_builder",
+    weight: -15,
+    label: `Templated site-builder (${m[1] ?? m[0]}) — pitch-doelgroep`,
+  };
+}
+
+export function checkOpenGraph(html: string): AuditSignal | null {
+  if (/<meta[^>]+property=["']og:(image|title|description)/i.test(html)) {
+    return null;
+  }
+  if (/<meta[^>]+name=["']twitter:(card|image)/i.test(html)) return null;
+  return {
+    key: "no_open_graph",
+    weight: -5,
+    label: "Geen Open Graph / Twitter card meta — onprofessioneel op share",
+  };
+}
+
+const FONT_RE =
+  /(fonts\.googleapis\.com|use\.typekit|fonts\.adobe\.com|@font-face|fonts\.bunny\.net)/i;
+
+export function checkCustomFonts(html: string): AuditSignal | null {
+  if (FONT_RE.test(html)) return null;
+  // Geen custom fonts → default browser-typografie (Times/Arial). Mild,
+  // omdat sommige goede sites bewust system-fonts gebruiken.
+  return {
+    key: "no_custom_fonts",
+    weight: -5,
+    label: "Geen custom fonts — default browser-typografie",
+  };
+}
+
+const ANCIENT_RE = /<center[\s>]|<font[\s>]/i;
+
+export function checkAncientTags(html: string): AuditSignal | null {
+  const ancient = ANCIENT_RE.test(html);
+  const brCount = (html.match(/<br\s*\/?>/gi) ?? []).length;
+  if (ancient || brCount >= 15) {
+    return {
+      key: "ancient_tags",
+      weight: -15,
+      label: ancient
+        ? "Pre-CSS tags (<center>, <font>) — jaren-90 opmaak"
+        : `${brCount} <br>-tags — opmaak met line-breaks`,
+    };
+  }
+  return null;
+}
+
+export function checkResponsiveImages(html: string): AuditSignal | null {
+  const imgs = (html.match(/<img[\s>]/gi) ?? []).length;
+  if (imgs < 3) return null; // weinig images → niet representatief
+  const responsive =
+    /\bsrcset\s*=/i.test(html) ||
+    /<picture[\s>]/i.test(html) ||
+    /loading\s*=\s*["']lazy/i.test(html);
+  if (responsive) return null;
+  return {
+    key: "no_responsive_images",
+    weight: -5,
+    label: `${imgs} <img>-tags zonder srcset/picture/lazy — pixelig op retina`,
+  };
+}
+
+/**
+ * Bonus-signal (positive weight). Moderne sites hebben vaak een
+ * autoplay hero-video of een hero-section met grote SVG-iconen.
+ */
+const SVG_INLINE_RE = /<svg[\s>]/gi;
+
+export function checkModernHero(html: string): AuditSignal | null {
+  const hasHeroVideo = /<video[^>]*\sautoplay/i.test(html);
+  const svgCount = (html.match(SVG_INLINE_RE) ?? []).length;
+  if (hasHeroVideo || svgCount >= 5) {
+    return {
+      key: "modern_hero",
+      weight: 8, // bonus: kompenseert tot 8 punten penalty
+      label: hasHeroVideo
+        ? "Heeft autoplay hero-video"
+        : `${svgCount} inline SVG-elementen — modern icon-systeem`,
+    };
+  }
+  return null;
+}
+
 export function checkStaleCopyrightYear(
   html: string,
   now: Date = new Date(),

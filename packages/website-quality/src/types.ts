@@ -21,7 +21,13 @@ export type SignalKey =
   | "no_favicon"
   | "no_doctype"
   | "tiny_html"
-  | "stale_copyright_year";
+  | "stale_copyright_year"
+  | "site_builder"
+  | "no_open_graph"
+  | "no_custom_fonts"
+  | "ancient_tags"
+  | "no_responsive_images"
+  | "modern_hero";
 
 export interface AuditSignal {
   key: SignalKey;

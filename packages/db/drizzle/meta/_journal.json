@@ -43,6 +43,13 @@
       "when": 1714953600000,
       "tag": "0005_saved_searches",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1715040000000,
+      "tag": "0006_audit_detail",
+      "breakpoints": true
     }
   ]
 }

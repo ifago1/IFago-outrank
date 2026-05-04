@@ -11,6 +11,7 @@ import {
 } from "@outreach/db";
 import { PageHeader, Pill } from "../../_ui";
 import { LeadDetailClient, type ContactView, type CampaignMembership } from "./lead-detail-client";
+import { AuditPanel, type AuditDetailView } from "./audit-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -141,6 +142,19 @@ export default async function LeadDetailPage({
         placeId={business.placeId}
         personalObservation={business.personalObservation}
         observationSource={business.personalObservationSource}
+      />
+
+      <AuditPanel
+        businessId={businessId}
+        websiteUrl={business.websiteUrl}
+        auditDetail={
+          (business.auditDetail as AuditDetailView | null) ?? null
+        }
+        auditedAt={
+          business.auditedAt instanceof Date
+            ? business.auditedAt.toISOString()
+            : (business.auditedAt as unknown as string | null)
+        }
       />
 
       <LeadDetailClient
