@@ -44,10 +44,10 @@ export default async function StatsPage() {
       sent: sql<number>`(
         SELECT count(*)::int FROM emails_sent es
         INNER JOIN campaign_leads cl ON cl.id = es.campaign_lead_id
-        WHERE cl.campaign_id = ${campaigns.id}
+        WHERE cl.campaign_id = campaigns.id
       )`,
-      replied: sql<number>`(SELECT count(*)::int FROM campaign_leads cl WHERE cl.campaign_id = ${campaigns.id} AND cl.status = 'replied')`,
-      bounced: sql<number>`(SELECT count(*)::int FROM campaign_leads cl WHERE cl.campaign_id = ${campaigns.id} AND cl.status = 'bounced')`,
+      replied: sql<number>`(SELECT count(*)::int FROM campaign_leads cl WHERE cl.campaign_id = campaigns.id AND cl.status = 'replied')`,
+      bounced: sql<number>`(SELECT count(*)::int FROM campaign_leads cl WHERE cl.campaign_id = campaigns.id AND cl.status = 'bounced')`,
     })
     .from(campaigns)
     .orderBy(sql`${campaigns.createdAt} DESC`);
@@ -132,14 +132,14 @@ async function PerVariantStats({
       campaignName: campaigns.name,
       stepOrder: sequenceSteps.stepOrder,
       label: sequenceStepVariants.label,
-      sent: sql<number>`(SELECT count(*)::int FROM emails_sent es WHERE es.variant_id = ${sequenceStepVariants.id})`,
+      sent: sql<number>`(SELECT count(*)::int FROM emails_sent es WHERE es.variant_id = sequence_step_variants.id)`,
       replied: sql<number>`(
         SELECT count(*)::int FROM emails_sent es
         INNER JOIN campaign_leads cl ON cl.id = es.campaign_lead_id
-        WHERE es.variant_id = ${sequenceStepVariants.id}
+        WHERE es.variant_id = sequence_step_variants.id
           AND cl.status = 'replied'
       )`,
-      bounced: sql<number>`(SELECT count(*)::int FROM emails_sent es WHERE es.variant_id = ${sequenceStepVariants.id} AND es.bounced = true)`,
+      bounced: sql<number>`(SELECT count(*)::int FROM emails_sent es WHERE es.variant_id = sequence_step_variants.id AND es.bounced = true)`,
     })
     .from(sequenceStepVariants)
     .innerJoin(

@@ -20,16 +20,16 @@ export default async function CampaignsPage() {
       niche: campaigns.niche,
       status: campaigns.status,
       createdAt: campaigns.createdAt,
-      stepCount: sql<number>`(SELECT count(*)::int FROM sequence_steps ss WHERE ss.campaign_id = ${campaigns.id})`,
-      leadCount: sql<number>`(SELECT count(*)::int FROM campaign_leads cl WHERE cl.campaign_id = ${campaigns.id})`,
+      stepCount: sql<number>`(SELECT count(*)::int FROM sequence_steps ss WHERE ss.campaign_id = campaigns.id)`,
+      leadCount: sql<number>`(SELECT count(*)::int FROM campaign_leads cl WHERE cl.campaign_id = campaigns.id)`,
       sentCount: sql<number>`(
         SELECT count(*)::int FROM emails_sent es
         INNER JOIN campaign_leads cl ON cl.id = es.campaign_lead_id
-        WHERE cl.campaign_id = ${campaigns.id}
+        WHERE cl.campaign_id = campaigns.id
       )`,
       repliedCount: sql<number>`(
         SELECT count(*)::int FROM campaign_leads cl
-        WHERE cl.campaign_id = ${campaigns.id} AND cl.status = 'replied'
+        WHERE cl.campaign_id = campaigns.id AND cl.status = 'replied'
       )`,
     })
     .from(campaigns)

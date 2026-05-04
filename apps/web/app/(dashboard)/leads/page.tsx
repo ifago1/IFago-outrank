@@ -45,11 +45,11 @@ export default async function LeadsPage({
       websiteQuality: businesses.websiteQuality,
       rating: businesses.googleRating,
       reviewsCount: businesses.reviewsCount,
-      contactCount: sql<number>`(SELECT count(*)::int FROM contacts cc WHERE cc.business_id = ${businesses.id})`,
+      contactCount: sql<number>`(SELECT count(*)::int FROM contacts cc WHERE cc.business_id = businesses.id)`,
       activeLeadCount: sql<number>`(
         SELECT count(*)::int FROM campaign_leads cl
         INNER JOIN contacts ct ON ct.id = cl.contact_id
-        WHERE ct.business_id = ${businesses.id}
+        WHERE ct.business_id = businesses.id
           AND cl.status IN ('queued', 'sent')
       )`,
     })
