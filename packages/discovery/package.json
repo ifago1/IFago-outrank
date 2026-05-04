@@ -16,6 +16,7 @@
     "@outreach/db": "workspace:*",
     "@outreach/geocoding": "workspace:*",
     "@outreach/places": "workspace:*",
+    "@outreach/website-quality": "workspace:*",
     "drizzle-orm": "^0.36.4"
   },
   "devDependencies": {

@@ -1,7 +1,8 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { businesses, type Db } from "@outreach/db";
 import { Geocoder } from "@outreach/geocoding";
 import { PlacesClient } from "@outreach/places";
+import { WebsiteScorer } from "@outreach/website-quality";
 
 export interface DiscoveryInput {
   niche: string;
@@ -11,6 +12,12 @@ export interface DiscoveryInput {
   /** 1-3 pages of 20 results. Default 1. */
   maxPages?: number;
   pageSize?: number;
+  /**
+   * Score the websites of newly-discovered businesses inline. Adds ~1
+   * HTTP fetch per business (8s timeout, 5x parallel) but means the
+   * dashboard shows quality immediately. Default: true.
+   */
+  scoreWebsites?: boolean;
 }
 
 export interface DiscoveryResult {
@@ -18,6 +25,7 @@ export interface DiscoveryResult {
   found: number;
   upserted: number;
   geocoded: { lat: number; lng: number; radius: number } | null;
+  scored: number;
 }
 
 /**
@@ -35,9 +43,8 @@ export interface GoogleKeys {
 
 /**
  * Pure discovery work: hits Google Places (optionally with a geocoded
- * locationBias) and upserts the results into `businesses`. Used by both
- * the CLI script and the dashboard server action so behavior stays
- * identical.
+ * locationBias), upserts the results into `businesses`, and scores the
+ * websites of any new ones via WebsiteScorer.
  */
 export async function runDiscovery(
   db: Db,
@@ -86,7 +93,7 @@ export async function runDiscovery(
   });
 
   if (results.length === 0) {
-    return { query, found: 0, upserted: 0, geocoded };
+    return { query, found: 0, upserted: 0, geocoded, scored: 0 };
   }
 
   const rows = results.map((r) => ({
@@ -103,6 +110,9 @@ export async function runDiscovery(
     rawPlacesData: r.raw,
   }));
 
+  // Upsert. We do NOT clobber an existing website_quality on conflict
+  // — re-discover should refresh contact info but keep the score we
+  // already paid for. New rows get null (or "none" for missing site).
   const inserted = await db
     .insert(businesses)
     .values(rows)
@@ -115,18 +125,73 @@ export async function runDiscovery(
         country: sql`excluded.country`,
         phone: sql`excluded.phone`,
         websiteUrl: sql`excluded.website_url`,
-        websiteQuality: sql`excluded.website_quality`,
+        websiteQuality: sql`COALESCE(${businesses.websiteQuality}, excluded.website_quality)`,
         googleRating: sql`excluded.google_rating`,
         reviewsCount: sql`excluded.reviews_count`,
         rawPlacesData: sql`excluded.raw_places_data`,
       },
     })
-    .returning({ id: businesses.id });
+    .returning({
+      id: businesses.id,
+      websiteUrl: businesses.websiteUrl,
+      websiteQuality: businesses.websiteQuality,
+    });
+
+  const shouldScore = input.scoreWebsites !== false;
+  const toScore = shouldScore
+    ? inserted.filter(
+        (b) =>
+          !!b.websiteUrl &&
+          (b.websiteQuality === null || b.websiteQuality === "none"),
+      )
+    : [];
+
+  let scored = 0;
+  if (toScore.length > 0) {
+    const scorer = new WebsiteScorer();
+    scored = await scoreInBatches(db, scorer, toScore, 5);
+  }
 
   return {
     query,
     found: results.length,
     upserted: inserted.length,
     geocoded,
+    scored,
   };
+}
+
+/**
+ * Score `concurrency` sites in parallel, write each result as it
+ * finishes. Failures are logged + the row keeps its current quality so
+ * a follow-up `pnpm score-websites --rescore` can retry.
+ */
+async function scoreInBatches(
+  db: Db,
+  scorer: WebsiteScorer,
+  rows: { id: string; websiteUrl: string | null }[],
+  concurrency: number,
+): Promise<number> {
+  let cursor = 0;
+  let scored = 0;
+  const workers = Array.from({ length: Math.min(concurrency, rows.length) }, async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= rows.length) return;
+      const row = rows[i];
+      if (!row || !row.websiteUrl) continue;
+      try {
+        const result = await scorer.audit(row.websiteUrl);
+        await db
+          .update(businesses)
+          .set({ websiteQuality: result.bucket })
+          .where(eq(businesses.id, row.id));
+        scored += 1;
+      } catch {
+        // swallow — the row stays unscored, recoverable via CLI rescore.
+      }
+    }
+  });
+  await Promise.all(workers);
+  return scored;
 }

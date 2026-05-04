@@ -105,6 +105,7 @@ async function main(): Promise<void> {
   }
   console.log(`  Found ${result.found} place(s)`);
   console.log(`  Upserted ${result.upserted} business row(s)`);
+  console.log(`  Scored ${result.scored} website(s)`);
 }
 
 main()
