@@ -7,6 +7,7 @@ import {
 import { envSnapshot } from "@outreach/config";
 import { PageHeader } from "../_ui";
 import { SettingsForm } from "./settings-form";
+import { TestEmailForm } from "./test-email-form";
 
 export const dynamic = "force-dynamic";
 
@@ -191,6 +192,7 @@ export default async function SettingsPage() {
         initialValues={initialValues}
         dbHasKey={[...dbHasKey]}
       />
+      <TestEmailForm defaultTo={initialValues.REPLY_TO_EMAIL ?? initialValues.FROM_EMAIL ?? ""} />
     </>
   );
 }

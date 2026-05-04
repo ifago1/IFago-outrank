@@ -19,3 +19,10 @@ export interface SaveSettingsResult {
   cleared: SettingKey[];
   errors: { key: string; message: string }[];
 }
+
+export interface SendTestEmailResult {
+  ok: boolean;
+  message: string;
+  /** Provider message ID — useful to confirm in Postmark/SMTP logs. */
+  messageId?: string;
+}

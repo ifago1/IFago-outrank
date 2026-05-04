@@ -1,11 +1,11 @@
 import { eq, isNull, sql, type SQL } from "drizzle-orm";
 import {
   businesses,
-  campaignLeads,
-  contacts,
+  campaigns,
   getDb,
 } from "@outreach/db";
-import { PageHeader, Pill, Table } from "../_ui";
+import { PageHeader } from "../_ui";
+import { LeadsClient, type LeadRow, type CampaignOption } from "./leads-client";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +46,12 @@ export default async function LeadsPage({
       rating: businesses.googleRating,
       reviewsCount: businesses.reviewsCount,
       contactCount: sql<number>`(SELECT count(*)::int FROM contacts cc WHERE cc.business_id = businesses.id)`,
+      verifiedContactCount: sql<number>`(
+        SELECT count(*)::int FROM contacts cc
+        WHERE cc.business_id = businesses.id
+          AND cc.is_verified = true
+          AND cc.do_not_contact = false
+      )`,
       activeLeadCount: sql<number>`(
         SELECT count(*)::int FROM campaign_leads cl
         INNER JOIN contacts ct ON ct.id = cl.contact_id
@@ -58,102 +64,46 @@ export default async function LeadsPage({
     .orderBy(sql`${businesses.discoveredAt} DESC`)
     .limit(100);
 
+  const leadRows: LeadRow[] = rows.map((r) => ({
+    businessId: r.businessId,
+    name: r.name,
+    city: r.city,
+    category: r.category,
+    websiteUrl: r.websiteUrl,
+    websiteQuality: r.websiteQuality,
+    rating: r.rating != null ? Number(r.rating) : null,
+    reviewsCount: r.reviewsCount,
+    contactCount: r.contactCount,
+    verifiedContactCount: r.verifiedContactCount,
+    activeLeadCount: r.activeLeadCount,
+  }));
+
+  const campaignList = await db
+    .select({
+      id: campaigns.id,
+      name: campaigns.name,
+      status: campaigns.status,
+    })
+    .from(campaigns)
+    .orderBy(sql`${campaigns.createdAt} DESC`);
+
+  const campaignOptions: CampaignOption[] = campaignList.map((c) => ({
+    id: c.id,
+    name: c.name,
+    status: c.status,
+  }));
+
   return (
     <>
       <PageHeader
         title="Leads"
-        subtitle={`${rows.length} businesses (latest 100)`}
+        subtitle={`${leadRows.length} businesses (latest 100). Selecteer er één of meerdere en wijs ze toe aan een campagne.`}
       />
-      <FilterBar params={params} />
-      <Table
-        columns={["Business", "City", "Category", "Website", "Quality", "Rating", "Contacts", "In campaign"]}
-        rows={rows.map((r) => [
-          r.name,
-          r.city ?? "—",
-          r.category ?? "—",
-          r.websiteUrl ? (
-            <a
-              key="w"
-              href={r.websiteUrl}
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: "#7ab8ff" }}
-            >
-              link
-            </a>
-          ) : (
-            <Pill key="w" tone="warn">geen website</Pill>
-          ),
-          qualityPill(r.websiteUrl, r.websiteQuality),
-          r.rating != null
-            ? `${Number(r.rating).toFixed(1)} (${r.reviewsCount ?? 0})`
-            : "—",
-          r.contactCount,
-          r.activeLeadCount > 0 ? <Pill key="a" tone="ok">{r.activeLeadCount}</Pill> : "—",
-        ])}
-        empty="Nog geen leads gevonden. Run `pnpm discover --niche=... --city=...`."
+      <LeadsClient
+        rows={leadRows}
+        campaigns={campaignOptions}
+        params={params}
       />
     </>
   );
 }
-
-function qualityPill(websiteUrl: string | null, quality: string | null) {
-  if (!websiteUrl) return <Pill tone="bad">geen site (top-prio)</Pill>;
-  if (!quality || quality === "none")
-    return <span style={{ opacity: 0.6 }}>—</span>;
-  if (quality === "good") return <Pill tone="ok">goed</Pill>;
-  if (quality === "decent") return <Pill tone="warn">decent</Pill>;
-  if (quality === "outdated") return <Pill tone="bad">verouderd</Pill>;
-  return <Pill>{quality}</Pill>;
-}
-
-function FilterBar({ params }: { params: SearchParams }) {
-  return (
-    <form
-      method="get"
-      style={{
-        display: "flex",
-        gap: "0.5rem",
-        marginBottom: "1rem",
-        flexWrap: "wrap",
-      }}
-    >
-      <input
-        name="niche"
-        defaultValue={params.niche ?? ""}
-        placeholder="Niche (bv. kapper)"
-        style={inputStyle}
-      />
-      <input
-        name="city"
-        defaultValue={params.city ?? ""}
-        placeholder="Stad"
-        style={inputStyle}
-      />
-      <select name="status" defaultValue={params.status ?? "any"} style={inputStyle}>
-        <option value="any">Alle leads</option>
-        <option value="no_website">Zonder website (top-prio)</option>
-        <option value="outdated">Verouderde site</option>
-        <option value="decent">Decent</option>
-        <option value="good">Goed (skip)</option>
-      </select>
-      <button type="submit" style={btnStyle}>Filter</button>
-    </form>
-  );
-}
-
-const inputStyle = {
-  padding: "0.5rem 0.75rem",
-  background: "#0f1218",
-  border: "1px solid #20252e",
-  borderRadius: "6px",
-  color: "#e6e8ee",
-  fontSize: "0.9rem",
-};
-
-const btnStyle = {
-  ...inputStyle,
-  cursor: "pointer",
-  background: "#1d4ed8",
-  borderColor: "#1d4ed8",
-};
