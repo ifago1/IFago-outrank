@@ -8,7 +8,7 @@ import {
   contacts,
   getDb,
 } from "@outreach/db";
-import type { AssignLeadsResult } from "./types";
+import type { AssignLeadsResult, ContactActionResult } from "./types";
 
 /**
  * Assign one or more businesses to a campaign. Resolves businesses →
@@ -127,4 +127,57 @@ export async function assignLeadsToCampaign(
     skipped: existingSet.size,
     skippedNoContact,
   };
+}
+
+/**
+ * Toggle do_not_contact op een contact. Eenvoudige manier om de
+ * scraper-junk (placeholder e-mails, verkeerde vestigingen) uit te
+ * sluiten zonder hem te verwijderen — campaign_leads die er al naar
+ * verwijzen blijven intact, maar de send-pipeline filtert DNC eruit.
+ */
+export async function setContactDnc(
+  contactId: string,
+  doNotContact: boolean,
+): Promise<ContactActionResult> {
+  if (!contactId) return { ok: false, message: "Geen contact-id." };
+  const db = getDb();
+  const [updated] = await db
+    .update(contacts)
+    .set({ doNotContact })
+    .where(eq(contacts.id, contactId))
+    .returning({ id: contacts.id, businessId: contacts.businessId });
+  if (!updated) return { ok: false, message: "Contact niet gevonden." };
+
+  revalidatePath(`/leads/${updated.businessId}`);
+  revalidatePath("/leads");
+
+  return {
+    ok: true,
+    message: doNotContact
+      ? "Op DNC gezet — niet meer benaderen."
+      : "DNC verwijderd — kan weer benaderd worden.",
+  };
+}
+
+/**
+ * Verwijder een contact volledig. Cascade ruimt campaign_leads op die
+ * eraan refereren — geen orphan rows. Gebruik dit voor evident kapotte
+ * adressen (escape-bugs, placeholders) waar DNC-zetten niet schoon
+ * genoeg voelt.
+ */
+export async function deleteContact(
+  contactId: string,
+): Promise<ContactActionResult> {
+  if (!contactId) return { ok: false, message: "Geen contact-id." };
+  const db = getDb();
+  const [deleted] = await db
+    .delete(contacts)
+    .where(eq(contacts.id, contactId))
+    .returning({ businessId: contacts.businessId });
+  if (!deleted) return { ok: false, message: "Contact niet gevonden." };
+
+  revalidatePath(`/leads/${deleted.businessId}`);
+  revalidatePath("/leads");
+
+  return { ok: true, message: "Contact verwijderd." };
 }

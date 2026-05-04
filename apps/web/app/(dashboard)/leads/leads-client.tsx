@@ -242,7 +242,14 @@ function LeadRowView({
           }
         />
       </td>
-      <td style={tdStyle}>{row.name}</td>
+      <td style={tdStyle}>
+        <Link
+          href={`/leads/${row.businessId}`}
+          style={{ color: "#7ab8ff", textDecoration: "none" }}
+        >
+          {row.name}
+        </Link>
+      </td>
       <td style={tdStyle}>{row.city ?? "—"}</td>
       <td style={tdStyle}>{row.category ?? "—"}</td>
       <td style={tdStyle}>

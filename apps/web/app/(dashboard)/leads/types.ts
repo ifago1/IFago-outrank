@@ -10,3 +10,8 @@ export interface AssignLeadsResult {
   /** Businesses zonder enige verifieerbare contact (geen email gevonden / DNC / niet verified). */
   skippedNoContact?: number;
 }
+
+export interface ContactActionResult {
+  ok: boolean;
+  message: string;
+}
