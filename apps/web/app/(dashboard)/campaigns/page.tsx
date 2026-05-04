@@ -1,15 +1,24 @@
-import Link from "next/link";
 import { sql } from "drizzle-orm";
 import {
-  campaignLeads,
   campaigns,
-  emailsSent,
   getDb,
-  sequenceSteps,
 } from "@outreach/db";
-import { PageHeader, Pill, Table } from "../_ui";
+import { PageHeader } from "../_ui";
+import { CampaignsClient } from "./campaigns-client";
 
 export const dynamic = "force-dynamic";
+
+export interface CampaignRow {
+  id: string;
+  name: string;
+  niche: string | null;
+  status: string;
+  stepCount: number;
+  leadCount: number;
+  sentCount: number;
+  repliedCount: number;
+  createdAt: string;
+}
 
 export default async function CampaignsPage() {
   const db = getDb();
@@ -35,42 +44,28 @@ export default async function CampaignsPage() {
     .from(campaigns)
     .orderBy(sql`${campaigns.createdAt} DESC`);
 
+  const campaignRows: CampaignRow[] = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    niche: r.niche,
+    status: r.status,
+    stepCount: r.stepCount,
+    leadCount: r.leadCount,
+    sentCount: r.sentCount,
+    repliedCount: r.repliedCount,
+    createdAt:
+      r.createdAt instanceof Date
+        ? r.createdAt.toISOString()
+        : (r.createdAt as unknown as string),
+  }));
+
   return (
     <>
       <PageHeader
         title="Campaigns"
-        subtitle="Outreach sequences"
-        actions={
-          <code style={{ fontSize: "0.8rem", opacity: 0.7 }}>
-            pnpm seed-campaign --name=&quot;...&quot;
-          </code>
-        }
+        subtitle="Een campagne bevat een 3-step e-mail sequence + de leads die hem doorlopen. Pauze/activeer met de status-knop, bewerk de mail-templates door op de naam te klikken."
       />
-      <Table
-        columns={["Name", "Niche", "Status", "Steps", "Leads", "Sent", "Replied"]}
-        rows={rows.map((c) => [
-          <Link
-            key="n"
-            href={`/campaigns/${c.id}`}
-            style={{ color: "#7ab8ff" }}
-          >
-            {c.name}
-          </Link>,
-          c.niche ?? "—",
-          <Pill key="s" tone={statusTone(c.status)}>{c.status}</Pill>,
-          c.stepCount,
-          c.leadCount,
-          c.sentCount,
-          c.repliedCount > 0 ? <Pill key="r" tone="ok">{c.repliedCount}</Pill> : c.repliedCount,
-        ])}
-        empty="Nog geen campagnes — run `pnpm seed-campaign --name=...`."
-      />
+      <CampaignsClient campaigns={campaignRows} />
     </>
   );
-}
-
-function statusTone(status: string): "ok" | "neutral" | "warn" {
-  if (status === "active") return "ok";
-  if (status === "paused") return "warn";
-  return "neutral";
 }
