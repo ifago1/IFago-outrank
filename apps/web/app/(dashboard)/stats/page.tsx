@@ -17,10 +17,10 @@ export default async function StatsPage() {
 
   const totals = await db
     .select({
-      sent: sql<number>`(SELECT count(*)::int FROM ${emailsSent})`,
-      bounced: sql<number>`(SELECT count(*)::int FROM ${emailsSent} WHERE bounced = true)`,
-      replied: sql<number>`(SELECT count(*)::int FROM ${campaignLeads} WHERE status = 'replied')`,
-      sentToday: sql<number>`(SELECT count(*)::int FROM ${emailsSent} WHERE sent_at::date = current_date)`,
+      sent: sql<number>`(SELECT count(*)::int FROM emails_sent)`,
+      bounced: sql<number>`(SELECT count(*)::int FROM emails_sent WHERE bounced = true)`,
+      replied: sql<number>`(SELECT count(*)::int FROM campaign_leads WHERE status = 'replied')`,
+      sentToday: sql<number>`(SELECT count(*)::int FROM emails_sent WHERE sent_at::date = current_date)`,
     })
     .from(sql`(SELECT 1) as _t`);
   const t = totals[0]!;
@@ -30,9 +30,9 @@ export default async function StatsPage() {
 
   const obsTotals = await db
     .select({
-      ai: sql<number>`(SELECT count(*)::int FROM ${businesses} WHERE ${businesses.personalObservationSource} = 'ai')`,
-      heuristic: sql<number>`(SELECT count(*)::int FROM ${businesses} WHERE ${businesses.personalObservationSource} = 'heuristic')`,
-      none: sql<number>`(SELECT count(*)::int FROM ${businesses} WHERE ${businesses.personalObservation} IS NULL)`,
+      ai: sql<number>`(SELECT count(*)::int FROM businesses WHERE personal_observation_source = 'ai')`,
+      heuristic: sql<number>`(SELECT count(*)::int FROM businesses WHERE personal_observation_source = 'heuristic')`,
+      none: sql<number>`(SELECT count(*)::int FROM businesses WHERE personal_observation IS NULL)`,
     })
     .from(sql`(SELECT 1) as _t`);
   const obs = obsTotals[0]!;
@@ -42,12 +42,12 @@ export default async function StatsPage() {
       name: campaigns.name,
       status: campaigns.status,
       sent: sql<number>`(
-        SELECT count(*)::int FROM ${emailsSent}
-        INNER JOIN ${campaignLeads} ON ${campaignLeads.id} = ${emailsSent.campaignLeadId}
-        WHERE ${campaignLeads.campaignId} = ${campaigns.id}
+        SELECT count(*)::int FROM emails_sent es
+        INNER JOIN campaign_leads cl ON cl.id = es.campaign_lead_id
+        WHERE cl.campaign_id = ${campaigns.id}
       )`,
-      replied: sql<number>`(SELECT count(*)::int FROM ${campaignLeads} WHERE ${campaignLeads.campaignId} = ${campaigns.id} AND ${campaignLeads.status} = 'replied')`,
-      bounced: sql<number>`(SELECT count(*)::int FROM ${campaignLeads} WHERE ${campaignLeads.campaignId} = ${campaigns.id} AND ${campaignLeads.status} = 'bounced')`,
+      replied: sql<number>`(SELECT count(*)::int FROM campaign_leads cl WHERE cl.campaign_id = ${campaigns.id} AND cl.status = 'replied')`,
+      bounced: sql<number>`(SELECT count(*)::int FROM campaign_leads cl WHERE cl.campaign_id = ${campaigns.id} AND cl.status = 'bounced')`,
     })
     .from(campaigns)
     .orderBy(sql`${campaigns.createdAt} DESC`);
@@ -132,14 +132,14 @@ async function PerVariantStats({
       campaignName: campaigns.name,
       stepOrder: sequenceSteps.stepOrder,
       label: sequenceStepVariants.label,
-      sent: sql<number>`(SELECT count(*)::int FROM ${emailsSent} WHERE ${emailsSent.variantId} = ${sequenceStepVariants.id})`,
+      sent: sql<number>`(SELECT count(*)::int FROM emails_sent es WHERE es.variant_id = ${sequenceStepVariants.id})`,
       replied: sql<number>`(
-        SELECT count(*)::int FROM ${emailsSent}
-        INNER JOIN ${campaignLeads} ON ${campaignLeads.id} = ${emailsSent.campaignLeadId}
-        WHERE ${emailsSent.variantId} = ${sequenceStepVariants.id}
-          AND ${campaignLeads.status} = 'replied'
+        SELECT count(*)::int FROM emails_sent es
+        INNER JOIN campaign_leads cl ON cl.id = es.campaign_lead_id
+        WHERE es.variant_id = ${sequenceStepVariants.id}
+          AND cl.status = 'replied'
       )`,
-      bounced: sql<number>`(SELECT count(*)::int FROM ${emailsSent} WHERE ${emailsSent.variantId} = ${sequenceStepVariants.id} AND ${emailsSent.bounced} = true)`,
+      bounced: sql<number>`(SELECT count(*)::int FROM emails_sent es WHERE es.variant_id = ${sequenceStepVariants.id} AND es.bounced = true)`,
     })
     .from(sequenceStepVariants)
     .innerJoin(

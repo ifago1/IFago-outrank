@@ -169,8 +169,11 @@ run_setup_wizard() {
   log "Setup wizard starten (interactive)…"
   log "  Tip: Postgres-default 'postgres://outreach:<wachtwoord>@127.0.0.1:5432/outreach'"
   # Run as outreach user so files end up owned right.
-  sudo -u "$APP_USER" --preserve-env=HOME -- \
-    bash -c "cd $APP_DIR && HOME=$APP_DIR pnpm install --frozen-lockfile && pnpm setup"
+  # `pnpm run setup` (not bare `pnpm setup`) avoids pnpm's built-in
+  # `setup` command which requires an interactive shell and fails on
+  # `nologin` users.
+  sudo -u "$APP_USER" -- env HOME="$APP_DIR" \
+    bash -c "cd $APP_DIR && pnpm install --frozen-lockfile && pnpm run setup"
 }
 
 provision_postgres() {
@@ -224,12 +227,13 @@ install_app() {
     bash -c "cd $APP_DIR && pnpm install --frozen-lockfile"
 
   log "Database migraties…"
+  # Source .env so DATABASE_URL is available to the migrate script.
   sudo -u "$APP_USER" -- env HOME="$APP_DIR" \
-    bash -c "cd $APP_DIR && pnpm db:migrate"
+    bash -c "cd $APP_DIR && set -a && . ./.env && set +a && pnpm db:migrate"
 
   log "Web app builden (Next standalone)…"
   sudo -u "$APP_USER" -- env HOME="$APP_DIR" \
-    bash -c "cd $APP_DIR && pnpm --filter @outreach/web build"
+    bash -c "cd $APP_DIR && set -a && . ./.env && set +a && pnpm --filter @outreach/web build"
   ok "Build klaar."
 }
 

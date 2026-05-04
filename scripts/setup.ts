@@ -51,16 +51,17 @@ const QUESTIONS: Question[] = [
     key: "DATABASE_URL",
     prompt: "DATABASE_URL",
     default: (a) =>
-      `postgres://outreach:${a["POSTGRES_PASSWORD"] ?? "outreach"}@postgres:5432/outreach`,
+      `postgres://outreach:${a["POSTGRES_PASSWORD"] ?? "outreach"}@127.0.0.1:5432/outreach`,
     required: true,
     hint:
-      "Inside docker-compose, hostname is `postgres`. For external Postgres (Neon/Supabase), paste the full URL.",
+      "Default for bare-metal install. For docker-compose use hostname `postgres`. For external Postgres (Neon/Supabase), paste the full URL.",
   },
   {
     key: "REDIS_URL",
     prompt: "REDIS_URL",
-    default: "redis://redis:6379",
+    default: "redis://127.0.0.1:6379",
     required: true,
+    hint: "Default for bare-metal install. For docker-compose use hostname `redis`.",
   },
 
   // ---- Domain ----

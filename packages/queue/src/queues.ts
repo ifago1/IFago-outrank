@@ -5,7 +5,9 @@ import { getRedisConnection } from "./connection.js";
  * Queue names. Centralized so the worker (consumer) and the scheduler
  * (producer) reference the same constants.
  */
-export const TICK_QUEUE = "outreach:tick";
+// BullMQ rejects queue names containing `:` (it uses colons as Redis key
+// separator internally). Use `-` instead.
+export const TICK_QUEUE = "outreach-tick";
 
 export interface TickJobData {
   /** Server time the tick was scheduled at, ISO 8601. */
