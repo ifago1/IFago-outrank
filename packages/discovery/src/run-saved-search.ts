@@ -1,6 +1,10 @@
 import { eq } from "drizzle-orm";
 import { savedSearches, type Db, type SavedSearch } from "@outreach/db";
-import { runDiscovery, type DiscoveryResult } from "./run-discovery.js";
+import {
+  runDiscovery,
+  type DiscoveryResult,
+  type GoogleKeys,
+} from "./run-discovery.js";
 
 export interface SavedSearchRunResult {
   searchId: string;
@@ -13,15 +17,19 @@ export interface SavedSearchRunResult {
  * Wrap runDiscovery() to update the saved_search row with the run
  * outcome. Always sets last_run_at, even on failure, so the scheduler
  * doesn't immediately retry a broken search.
+ *
+ * Accepts either a single Google API key (used for both Places +
+ * Geocoding) or a {placesApiKey, geocodingApiKey} pair when you want
+ * separate keys.
  */
 export async function runSavedSearch(
   db: Db,
-  googleApiKey: string,
+  keys: GoogleKeys | string,
   search: SavedSearch,
 ): Promise<SavedSearchRunResult> {
   const now = new Date();
   try {
-    const result = await runDiscovery(db, googleApiKey, {
+    const result = await runDiscovery(db, keys, {
       niche: search.niche,
       city: search.city,
       ...(search.radiusMeters !== null

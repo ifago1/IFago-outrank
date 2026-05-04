@@ -42,10 +42,19 @@ const tickWorker = createTickWorker({
 const discoverWorker = createDiscoverWorker({
   buildContext: async () => {
     const db = getDb();
-    // Settings tab can override the env-supplied key.
-    const dbKey = await getSetting(db, "GOOGLE_PLACES_API_KEY");
-    const googleApiKey = dbKey ?? process.env["GOOGLE_PLACES_API_KEY"];
-    return { db, googleApiKey };
+    // Settings tab can override the env-supplied keys.
+    const placesApiKey =
+      (await getSetting(db, "GOOGLE_PLACES_API_KEY")) ??
+      process.env["GOOGLE_PLACES_API_KEY"];
+    const geocodingApiKey =
+      (await getSetting(db, "GOOGLE_GEOCODING_API_KEY")) ??
+      process.env["GOOGLE_GEOCODING_API_KEY"] ??
+      placesApiKey;
+    return {
+      db,
+      googleApiKey: placesApiKey,
+      ...(geocodingApiKey ? { geocodingApiKey } : {}),
+    };
   },
 });
 

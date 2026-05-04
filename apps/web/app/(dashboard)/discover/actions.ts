@@ -109,17 +109,26 @@ export async function runSearchNow(id: string): Promise<DiscoverActionResult> {
   const row = rows[0];
   if (!row) return { ok: false, message: "Search niet gevonden." };
 
-  const dbKey = await getSetting(db, "GOOGLE_PLACES_API_KEY");
-  const apiKey = dbKey ?? process.env["GOOGLE_PLACES_API_KEY"];
-  if (!apiKey) {
+  const placesApiKey =
+    (await getSetting(db, "GOOGLE_PLACES_API_KEY")) ??
+    process.env["GOOGLE_PLACES_API_KEY"];
+  if (!placesApiKey) {
     return {
       ok: false,
       message:
         "GOOGLE_PLACES_API_KEY ontbreekt — vul in via Settings tab of .env.",
     };
   }
+  const geocodingApiKey =
+    (await getSetting(db, "GOOGLE_GEOCODING_API_KEY")) ??
+    process.env["GOOGLE_GEOCODING_API_KEY"] ??
+    placesApiKey;
 
-  const result = await runSavedSearch(db, apiKey, row);
+  const result = await runSavedSearch(
+    db,
+    { placesApiKey, geocodingApiKey },
+    row,
+  );
   revalidatePath("/discover");
   revalidatePath("/leads");
 

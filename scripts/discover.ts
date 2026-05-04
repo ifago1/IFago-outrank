@@ -75,16 +75,21 @@ async function main(): Promise<void> {
   const opts = parseCliArgs();
   const db = getDb();
 
-  const dbKey = await getSetting(db, "GOOGLE_PLACES_API_KEY");
-  const apiKey = dbKey ?? process.env["GOOGLE_PLACES_API_KEY"];
-  if (!apiKey) {
+  const placesApiKey =
+    (await getSetting(db, "GOOGLE_PLACES_API_KEY")) ??
+    process.env["GOOGLE_PLACES_API_KEY"];
+  if (!placesApiKey) {
     console.error(
       "GOOGLE_PLACES_API_KEY is required (set it in .env or in the dashboard Settings tab).",
     );
     process.exit(1);
   }
+  const geocodingApiKey =
+    (await getSetting(db, "GOOGLE_GEOCODING_API_KEY")) ??
+    process.env["GOOGLE_GEOCODING_API_KEY"] ??
+    placesApiKey;
 
-  const result = await runDiscovery(db, apiKey, {
+  const result = await runDiscovery(db, { placesApiKey, geocodingApiKey }, {
     niche: opts.niche,
     city: opts.city,
     ...(opts.radiusMeters ? { radiusMeters: opts.radiusMeters } : {}),

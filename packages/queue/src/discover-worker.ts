@@ -13,11 +13,18 @@ const DISCOVER_LOCK_KEY = "outreach:discover-lock";
 
 export interface CreateDiscoverWorkerOptions {
   /**
-   * Builder that returns the Db handle + Google API key. Called per
-   * poll so dashboard-saved settings (Google key) take effect without
+   * Builder that returns the Db handle + Google API keys. Called per
+   * poll so dashboard-saved settings (Google keys) take effect without
    * a worker restart.
+   *
+   * `googleApiKey` is the Places API key. `geocodingApiKey` is
+   * optional — when omitted, the Places key is reused for geocoding.
    */
-  buildContext: () => Promise<{ db: Db; googleApiKey: string | undefined }>;
+  buildContext: () => Promise<{
+    db: Db;
+    googleApiKey: string | undefined;
+    geocodingApiKey?: string | undefined;
+  }>;
   onPollComplete?: (results: SavedSearchRunResult[]) => void | Promise<void>;
   concurrency?: number;
 }
@@ -64,8 +71,12 @@ export function createDiscoverWorker(
         console.log(`[discover] ${due.length} search(es) due, running…`);
 
         const results: SavedSearchRunResult[] = [];
+        const keys = {
+          placesApiKey: ctx.googleApiKey,
+          geocodingApiKey: ctx.geocodingApiKey ?? ctx.googleApiKey,
+        };
         for (const s of due) {
-          const r = await runSavedSearch(ctx.db, ctx.googleApiKey, s);
+          const r = await runSavedSearch(ctx.db, keys, s);
           results.push(r);
           if (r.ok) {
             console.log(

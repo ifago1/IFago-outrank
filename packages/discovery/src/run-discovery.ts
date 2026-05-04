@@ -21,6 +21,19 @@ export interface DiscoveryResult {
 }
 
 /**
+ * Google API keys for discovery work. Pass distinct keys when you want
+ * separate IAM/quota policies per API; pass the same key (or omit
+ * geocoding) when one key works for both. The Geocoder falls back to
+ * the Places key when geocoding-specific is omitted, so existing
+ * single-key setups keep working unchanged.
+ */
+export interface GoogleKeys {
+  placesApiKey: string;
+  /** Optional. Falls back to `placesApiKey` when omitted. */
+  geocodingApiKey?: string;
+}
+
+/**
  * Pure discovery work: hits Google Places (optionally with a geocoded
  * locationBias) and upserts the results into `businesses`. Used by both
  * the CLI script and the dashboard server action so behavior stays
@@ -28,12 +41,19 @@ export interface DiscoveryResult {
  */
 export async function runDiscovery(
   db: Db,
-  googleApiKey: string,
+  keys: GoogleKeys | string,
   input: DiscoveryInput,
 ): Promise<DiscoveryResult> {
-  if (!googleApiKey) throw new Error("GOOGLE_PLACES_API_KEY is required");
+  // Backwards-compat: callers can still pass a bare string, treated as
+  // the Places key (also used for geocoding).
+  const placesApiKey = typeof keys === "string" ? keys : keys.placesApiKey;
+  const geocodingApiKey =
+    typeof keys === "string"
+      ? keys
+      : (keys.geocodingApiKey ?? keys.placesApiKey);
+  if (!placesApiKey) throw new Error("GOOGLE_PLACES_API_KEY is required");
 
-  const places = new PlacesClient({ apiKey: googleApiKey });
+  const places = new PlacesClient({ apiKey: placesApiKey });
 
   let locationBias:
     | { center: { latitude: number; longitude: number }; radiusMeters: number }
@@ -41,7 +61,7 @@ export async function runDiscovery(
   let geocoded: DiscoveryResult["geocoded"] = null;
 
   if (input.radiusMeters) {
-    const geocoder = new Geocoder({ apiKey: googleApiKey });
+    const geocoder = new Geocoder({ apiKey: geocodingApiKey });
     const loc = await geocoder.geocode(input.city);
     if (loc) {
       locationBias = {

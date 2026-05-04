@@ -98,13 +98,31 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    title: "Externe APIs",
+    title: "Google APIs",
+    description:
+      "Voor lead discovery + radius-zoekopdrachten. Eén Google Cloud key voor beide werkt — vul 'm in bij Places API en laat Geocoding leeg, dan wordt de Places-key automatisch hergebruikt. Wil je aparte keys per API (voor cost-tracking of strakkere IAM-restrictions): vul beide velden in.",
     fields: [
-      { key: "GOOGLE_PLACES_API_KEY", label: "Google API key", type: "password", hint: "Eén key voor Places + Geocoding + PageSpeed Insights." },
+      {
+        key: "GOOGLE_PLACES_API_KEY",
+        label: "Places API (New) — key",
+        type: "password",
+        hint: "Verplicht. Genereer in Google Cloud Console; restrict tot 'Places API (New)'.",
+      },
+      {
+        key: "GOOGLE_GEOCODING_API_KEY",
+        label: "Geocoding API — key",
+        type: "password",
+        hint: "Optioneel. Laat leeg om dezelfde key als Places te gebruiken. Vul in als je een aparte key hebt voor cost-tracking of als je de Places-key strikt tot Places API hebt beperkt.",
+      },
+    ],
+  },
+  {
+    title: "Overige externe APIs",
+    fields: [
       { key: "ANTHROPIC_API_KEY", label: "Anthropic API key", type: "password", hint: "Optioneel — voor AI-personalisatie." },
       { key: "AI_MODEL", label: "AI model", type: "text", placeholder: "claude-opus-4-7", hint: "claude-haiku-4-5 is ~5x goedkoper voor één-zin output." },
       { key: "HUNTER_API_KEY", label: "Hunter.io API key", type: "password", hint: "Optioneel — voor betere email-enrichment." },
-      { key: "PSI_API_KEY", label: "PSI API key (optioneel)", type: "password", hint: "Mag dezelfde zijn als Google key — laat leeg als je die hergebruikt." },
+      { key: "PSI_API_KEY", label: "PageSpeed Insights API key (optioneel)", type: "password", hint: "Mag dezelfde Google-key zijn — laat leeg als je die hergebruikt." },
     ],
   },
   {
