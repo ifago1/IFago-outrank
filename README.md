@@ -119,6 +119,7 @@ pnpm send-tick                   # echt sturen
 | `pnpm discover` | Google Places Text Search → upsert in `businesses` op `place_id` + auto-enrichment van nieuwe leads (website-scrape, optioneel Hunter) |
 | `pnpm score-websites` | Audit homepages (HTTPS, viewport, table-layout, jQuery 1.x, Flash, X-UA-Compatible, doctype, copyright-year) → bucket `outdated|decent|good` in `businesses.website_quality` |
 | `pnpm enrich` | Backfill voor businesses zonder contact óf waarvan de laatste poging > 90 dagen oud is: scrape website (`/contact`, `/over-ons`, etc.) + optioneel Hunter → MX-valideren → upsert in `contacts`. Stempelt `enrichment_attempted_at` zodat herhaalde runs leads zonder mail niet opnieuw scrapen. Loopt ook automatisch via de `outreach-enrich` BullMQ poll (default elke 6u). |
+| `pnpm poll-inbox` | Eén-malig de IMAP-mailbox scannen op replies + bounces, matchen aan campaign-leads en `replied_at` / `bounced` zetten. Hard bounces gaan ook automatisch in `unsubscribes` + `do_not_contact`. Loopt ook automatisch via de `outreach-inbox` BullMQ poll (default elke 10 min). Vereist `IMAP_*` env-vars (of fallback op `SMTP_*` voor providers waar credentials gedeeld zijn — bv. mailprotect.be, Combell, Fastmail). |
 | `pnpm seed-campaign` | Maakt een campagne + 3-step sequence aan (idempotent op naam) |
 | `pnpm assign-leads` | Filtert contacten en maakt `campaign_leads` aan |
 | `pnpm send-tick` | 1× sequencer-tick: pak due leads, evalueer 5 guards, render template, verstuur via Postmark, log in `emails_sent` |

@@ -17,10 +17,12 @@ import {
   closeRedis,
   createDiscoverWorker,
   createEnrichWorker,
+  createInboxWorker,
   createTickWorker,
 } from "@outreach/queue";
 import { loadConfigOrExit } from "@outreach/config";
 import { buildRuntimeConfig } from "./lib/runtime-config.js";
+import { buildImapConfig } from "./lib/imap-config.js";
 
 const cfg = loadConfigOrExit("worker");
 
@@ -76,8 +78,17 @@ const enrichWorker = createEnrichWorker({
   },
 });
 
+const inboxWorker = createInboxWorker({
+  buildContext: async () => {
+    const db = getDb();
+    const imap = await buildImapConfig(db);
+    if (!imap) return null;
+    return { db, imap };
+  },
+});
+
 console.log(
-  "[worker] tick + discover + enrich workers started — waiting for jobs",
+  "[worker] tick + discover + enrich + inbox workers started — waiting for jobs",
 );
 
 async function shutdown(signal: string): Promise<void> {
@@ -86,6 +97,7 @@ async function shutdown(signal: string): Promise<void> {
     await tickWorker.close();
     await discoverWorker.close();
     await enrichWorker.close();
+    await inboxWorker.close();
     await closeQueues();
     await closeRedis();
     await closeDb();

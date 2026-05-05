@@ -10,6 +10,7 @@ import { getRedisConnection } from "./connection.js";
 export const TICK_QUEUE = "outreach-tick";
 export const DISCOVER_QUEUE = "outreach-discover";
 export const ENRICH_QUEUE = "outreach-enrich";
+export const INBOX_QUEUE = "outreach-inbox";
 
 export interface TickJobData {
   /** Server time the tick was scheduled at, ISO 8601. */
@@ -24,9 +25,14 @@ export interface EnrichJobData {
   scheduledAt: string;
 }
 
+export interface InboxJobData {
+  scheduledAt: string;
+}
+
 let _tickQueue: Queue<TickJobData> | undefined;
 let _discoverQueue: Queue<DiscoverJobData> | undefined;
 let _enrichQueue: Queue<EnrichJobData> | undefined;
+let _inboxQueue: Queue<InboxJobData> | undefined;
 
 const baseJobOpts = {
   removeOnComplete: { count: 100 },
@@ -60,6 +66,15 @@ export function getEnrichQueue(): Queue<EnrichJobData> {
     defaultJobOptions: baseJobOpts,
   });
   return _enrichQueue;
+}
+
+export function getInboxQueue(): Queue<InboxJobData> {
+  if (_inboxQueue) return _inboxQueue;
+  _inboxQueue = new Queue<InboxJobData>(INBOX_QUEUE, {
+    connection: getRedisConnection(),
+    defaultJobOptions: baseJobOpts,
+  });
+  return _inboxQueue;
 }
 
 export interface ScheduleOptions {
@@ -120,6 +135,23 @@ export async function scheduleRepeatingEnrichPoll(
   );
 }
 
+/**
+ * Polls the configured IMAP mailbox for unread mail and matches each
+ * one against an outbound campaign-lead (reply or bounce). Default
+ * cadence: every 10 minutes.
+ */
+export async function scheduleRepeatingInboxPoll(
+  opts: ScheduleOptions = {},
+): Promise<void> {
+  const queue = getInboxQueue();
+  const repeat: RepeatOptions = { every: opts.everyMs ?? 10 * 60 * 1000 };
+  await queue.add(
+    "inbox-poll",
+    { scheduledAt: new Date().toISOString() },
+    { repeat, jobId: opts.jobId ?? "inbox-poll-repeating" },
+  );
+}
+
 export async function closeQueues(): Promise<void> {
   if (_tickQueue) {
     await _tickQueue.close();
@@ -132,6 +164,10 @@ export async function closeQueues(): Promise<void> {
   if (_enrichQueue) {
     await _enrichQueue.close();
     _enrichQueue = undefined;
+  }
+  if (_inboxQueue) {
+    await _inboxQueue.close();
+    _inboxQueue = undefined;
   }
 }
 
