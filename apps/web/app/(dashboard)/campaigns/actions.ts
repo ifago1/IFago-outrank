@@ -85,6 +85,58 @@ export async function deleteCampaign(
   return { ok: true, message: "Verwijderd." };
 }
 
+/**
+ * Update auto-assign rules for one campaign. NULL fields act as
+ * wildcards in the matcher; omitting a field on the form clears it.
+ *
+ * Idempotent: re-submitting the same form is a no-op. The matcher only
+ * runs when `enabled` is true, so toggling it without setting any rule
+ * acts as "match everything in this campaign's niche" — useful when
+ * you've already filled the campaign's `niche` field.
+ */
+export async function updateAutoAssign(
+  id: string,
+  form: FormData,
+): Promise<CampaignActionResult> {
+  const enabled = form.get("autoAssignEnabled") === "on";
+  const niche = String(form.get("autoAssignNiche") ?? "").trim();
+  const city = String(form.get("autoAssignCity") ?? "").trim();
+  const websiteQuality = String(
+    form.get("autoAssignWebsiteQuality") ?? "",
+  ).trim();
+  const maxLeadsRaw = String(form.get("autoAssignMaxLeads") ?? "").trim();
+  const maxLeads = maxLeadsRaw ? Math.max(0, Number(maxLeadsRaw) || 0) : null;
+
+  const validQuality = new Set(["", "outdated", "decent", "good", "none"]);
+  if (!validQuality.has(websiteQuality)) {
+    return {
+      ok: false,
+      message: `Onbekende website-quality "${websiteQuality}".`,
+    };
+  }
+
+  const db = getDb();
+  await db
+    .update(campaigns)
+    .set({
+      autoAssignEnabled: enabled,
+      autoAssignNiche: niche || null,
+      autoAssignCity: city || null,
+      autoAssignWebsiteQuality: websiteQuality || null,
+      autoAssignMaxLeads: maxLeads,
+    })
+    .where(eq(campaigns.id, id));
+
+  revalidatePath("/campaigns");
+  revalidatePath(`/campaigns/${id}`);
+  return {
+    ok: true,
+    message: enabled
+      ? "Auto-assign aangezet. Nieuwe leads die matchen worden automatisch toegevoegd."
+      : "Auto-assign uitgezet.",
+  };
+}
+
 export async function updateSequenceStep(
   campaignId: string,
   stepOrder: number,

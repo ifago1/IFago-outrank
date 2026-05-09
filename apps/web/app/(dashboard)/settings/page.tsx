@@ -150,6 +150,79 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    title: "Automation",
+    description:
+      "Schakel auto-pilot features in: A/B variant-keuze op basis van historische reply-rate, dynamische warmup op basis van inbox health, en de daily KPI-digest mail.",
+    fields: [
+      {
+        key: "VARIANT_SELECTION",
+        label: "A/B variant strategie",
+        type: "select",
+        options: [
+          { value: "weighted", label: "Weighted (statisch — gebruikt sequence_step_variants.weight)" },
+          { value: "thompson", label: "Thompson sampling (leert van historische reply-rate)" },
+        ],
+        hint: "Default 'weighted'. 'thompson' is cold-start safe via een Beta(1,1) prior — nieuwe variants krijgen exploratie totdat ze data hebben.",
+      },
+      {
+        key: "SMART_WARMUP",
+        label: "Smart warmup",
+        type: "select",
+        options: [
+          { value: "false", label: "Uit (alleen lineaire ramp)" },
+          { value: "true", label: "Aan (×0.5 bij bounce>5%, ×0.75 bij bounce>3%, ×1.25 bij reply>5%)" },
+        ],
+        hint: "Vereist WARMUP_DAYS + WARMUP_FLOOR. Past de daglimiet on-the-fly aan op basis van de recente N sends.",
+      },
+      {
+        key: "SMART_WARMUP_WINDOW",
+        label: "Smart-warmup window (laatste N sends)",
+        type: "number",
+        placeholder: "100",
+      },
+      {
+        key: "SMART_WARMUP_MIN_SENT",
+        label: "Smart-warmup minimum (negeer onder N)",
+        type: "number",
+        placeholder: "20",
+      },
+      {
+        key: "DIGEST_EMAIL",
+        label: "Digest-mail ontvanger",
+        type: "email",
+        placeholder: "jij@agency.nl",
+        hint: "Standaard FROM_EMAIL. De daily digest gaat hier naartoe (08:00 NL via cron).",
+      },
+    ],
+  },
+  {
+    title: "IMAP — reply / bounce detectie",
+    description:
+      "Wanneer je via SMTP verstuurt (mailprotect.be / Combell / Fastmail / Gmail), draait een poll-worker elke 10 min op je INBOX om replies en bounces aan campaign-leads te koppelen. Niet nodig met Postmark (die heeft webhooks). Velden mogen leeg blijven — IMAP_USER/PASS vallen automatisch terug op SMTP_USER/PASS.",
+    fields: [
+      {
+        key: "IMAP_HOST",
+        label: "IMAP host",
+        type: "text",
+        placeholder: "imap.mailprotect.be",
+        hint: "Voor mailprotect.be: 'imap.mailprotect.be'. Gmail: 'imap.gmail.com'. Fastmail: 'imap.fastmail.com'.",
+      },
+      { key: "IMAP_PORT", label: "Port", type: "number", placeholder: "993" },
+      {
+        key: "IMAP_SECURE",
+        label: "TLS-mode",
+        type: "select",
+        options: [
+          { value: "true", label: "Implicit TLS (port 993)" },
+          { value: "false", label: "STARTTLS (port 143)" },
+        ],
+      },
+      { key: "IMAP_USER", label: "Username", type: "text", hint: "Optioneel — laat leeg om SMTP_USER te hergebruiken." },
+      { key: "IMAP_PASS", label: "Password", type: "password", hint: "Optioneel — laat leeg om SMTP_PASS te hergebruiken." },
+      { key: "IMAP_FOLDER", label: "Folder", type: "text", placeholder: "INBOX" },
+    ],
+  },
+  {
     title: "Worker",
     fields: [
       { key: "TICK_BATCH_SIZE", label: "Leads per tick", type: "number", placeholder: "50" },
