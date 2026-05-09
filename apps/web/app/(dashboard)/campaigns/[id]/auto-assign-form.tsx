@@ -59,7 +59,7 @@ export function AutoAssignForm({
       <p style={descStyle}>
         Wanneer aangezet plaatst de enrichment-pipeline elke nieuwe contact
         automatisch in deze campagne als de business matcht. Lege velden
-        gelden als wildcard. <strong>Status moet "active" zijn</strong> —
+        gelden als wildcard. <strong>Status moet &quot;active&quot; zijn</strong> —
         gepauzeerde campagnes verzamelen geen auto-leads.
       </p>
 
@@ -196,7 +196,7 @@ export function AutoAssignForm({
             geschreven door Claude — uniek per lead, met de step-templates
             als toon-referentie. Werkt het beste als je de templates kort
             houdt (toon, niet inhoud). Vereist <code>ANTHROPIC_API_KEY</code>{" "}
-            in Settings. Bij AI-fout valt 'ie automatisch terug op de
+            in Settings. Bij AI-fout valt &apos;ie automatisch terug op de
             template-render — sends gaan dus altijd door.
           </p>
         </div>
