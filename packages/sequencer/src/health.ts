@@ -32,6 +32,86 @@ export function effectiveDailyLimit(opts: WarmupOptions): number {
 }
 
 /**
+ * Smart adjustment of the linear warmup ramp based on recent inbox
+ * health. Inputs:
+ *   - linearLimit  → today's value from `effectiveDailyLimit`
+ *   - bounceRate   → recent bounce rate (0-1)
+ *   - replyRate    → recent reply rate (0-1)
+ *
+ * Output is clamped to [floor, fullLimit]. Pure — same inputs always
+ * give the same number, so behavior is auditable.
+ *
+ * Multipliers (compounding):
+ *   bounce > 5%       →  ×0.5  (cool off — likely bad list)
+ *   bounce > 3%       →  ×0.75 (slow down)
+ *   reply  > 5%       →  ×1.25 (warmup is going great — accelerate)
+ *
+ * Below `minSent` recent sends we don't have enough data to adjust, so
+ * we leave the linear ramp alone (returns `linearLimit`).
+ */
+export interface SmartWarmupOptions {
+  linearLimit: number;
+  fullLimit: number;
+  floor: number;
+  recentBounces: number;
+  recentReplies: number;
+  recentSent: number;
+  /** Min sends in the window before adjustments apply. Default 20. */
+  minSent?: number;
+}
+
+export interface SmartWarmupDecision {
+  limit: number;
+  bounceRate: number;
+  replyRate: number;
+  /** Multiplier applied to the linear ramp. 1.0 == unchanged. */
+  multiplier: number;
+  reason: string;
+}
+
+export function adjustForHealth(
+  opts: SmartWarmupOptions,
+): SmartWarmupDecision {
+  const minSent = opts.minSent ?? 20;
+  if (opts.recentSent < minSent) {
+    return {
+      limit: opts.linearLimit,
+      bounceRate: 0,
+      replyRate: 0,
+      multiplier: 1,
+      reason: `not enough data (${opts.recentSent} < ${minSent} sends)`,
+    };
+  }
+  const bounceRate = opts.recentBounces / opts.recentSent;
+  const replyRate = opts.recentReplies / opts.recentSent;
+
+  let multiplier = 1;
+  const reasons: string[] = [];
+
+  if (bounceRate > 0.05) {
+    multiplier *= 0.5;
+    reasons.push(`bounce ${(bounceRate * 100).toFixed(1)}% > 5% (×0.5)`);
+  } else if (bounceRate > 0.03) {
+    multiplier *= 0.75;
+    reasons.push(`bounce ${(bounceRate * 100).toFixed(1)}% > 3% (×0.75)`);
+  }
+  if (replyRate > 0.05) {
+    multiplier *= 1.25;
+    reasons.push(`reply ${(replyRate * 100).toFixed(1)}% > 5% (×1.25)`);
+  }
+
+  const raw = Math.round(opts.linearLimit * multiplier);
+  const limit = Math.max(opts.floor, Math.min(opts.fullLimit, raw));
+  return {
+    limit,
+    bounceRate,
+    replyRate,
+    multiplier,
+    reason: reasons.length > 0 ? reasons.join(", ") : "ok",
+  };
+}
+
+/**
  * Recent-bounce circuit breaker. If the bounce rate over the last N
  * sends exceeds the threshold, halt the entire tick — sending more
  * mail with bad addresses scorches your sender reputation. Operators

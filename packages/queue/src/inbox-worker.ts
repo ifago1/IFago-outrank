@@ -21,6 +21,11 @@ export interface CreateInboxWorkerOptions {
   buildContext: () => Promise<{
     db: Db;
     imap: ImapConnectionConfig;
+    /**
+     * When set, replies get AI-classified via Anthropic; without a key,
+     * a deterministic heuristic still fills the same columns.
+     */
+    anthropicApiKey?: string | undefined;
   } | null>;
   /** Max messages handled per poll. Default 100. */
   batchSize?: number;
@@ -70,6 +75,9 @@ export function createInboxWorker(
           db: ctx.db,
           imap: ctx.imap,
           batchSize,
+          ...(ctx.anthropicApiKey
+            ? { anthropicApiKey: ctx.anthropicApiKey }
+            : {}),
           log: (line) => console.log(line),
         });
         console.log(

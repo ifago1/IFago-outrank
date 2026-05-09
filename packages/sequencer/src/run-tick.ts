@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import {
   businesses,
   campaignLeads,
@@ -19,11 +19,13 @@ import {
   type SkipReason,
 } from "./guards.js";
 import {
+  adjustForHealth,
   effectiveDailyLimit,
   evaluateBounceCircuit,
 } from "./health.js";
 import { buildPersonalObservation } from "./personalization.js";
 import { pickWeighted } from "./variant-selector.js";
+import { pickThompson, type ThompsonItem } from "./thompson-sampler.js";
 
 export interface RunTickConfig {
   db: Db;
@@ -63,6 +65,19 @@ export interface RunTickConfig {
     minSent?: number;
   };
   /**
+   * Smart warmup: on top of the linear ramp, dial the daily limit down
+   * when bounce-rate is elevated and up when reply-rate is strong. Off
+   * by default — set this to enable. Only applies when `warmup` is also
+   * set (since smart-warmup adjusts the linear ramp, not the full
+   * limit). See `adjustForHealth` for the multiplier policy.
+   */
+  smartWarmup?: {
+    /** Sends to look back. Default 100. */
+    windowSize?: number;
+    /** Min sends in the window before adjustments apply. Default 20. */
+    minSent?: number;
+  };
+  /**
    * Optional Claude-backed personalizer. When provided, the first time we
    * send to a business we ask Claude to write a one-line observation and
    * cache it on businesses.personal_observation. Subsequent steps reuse the
@@ -74,6 +89,13 @@ export interface RunTickConfig {
    * deterministic.
    */
   random?: () => number;
+  /**
+   * When true, A/B variants are picked via Thompson sampling on
+   * historical reply-rate instead of static weights. Cold-start safe
+   * (uniform Beta(1,1) prior), so untested variants still get explored.
+   * Default false to keep behavior unchanged for existing campaigns.
+   */
+  thompsonSampling?: boolean;
 }
 
 export interface SendOutcome {
@@ -150,13 +172,41 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
   let effectiveLimit = cfg.dailyLimit;
   if (cfg.warmup) {
     const firstSentAt = await fetchFirstSentAt(cfg.db);
-    effectiveLimit = effectiveDailyLimit({
+    const linearLimit = effectiveDailyLimit({
       firstSentAt,
       now,
       fullLimit: cfg.dailyLimit,
       warmupDays: cfg.warmup.days,
       floor: cfg.warmup.floor,
     });
+    effectiveLimit = linearLimit;
+
+    if (cfg.smartWarmup) {
+      const stats = await fetchHealthStats(
+        cfg.db,
+        cfg.smartWarmup.windowSize ?? 100,
+      );
+      const decision = adjustForHealth({
+        linearLimit,
+        fullLimit: cfg.dailyLimit,
+        floor: cfg.warmup.floor,
+        recentBounces: stats.bounces,
+        recentReplies: stats.replies,
+        recentSent: stats.sent,
+        ...(cfg.smartWarmup.minSent !== undefined
+          ? { minSent: cfg.smartWarmup.minSent }
+          : {}),
+      });
+      effectiveLimit = decision.limit;
+      if (decision.multiplier !== 1) {
+        // Surface the adjustment in logs. Operators can audit by looking
+        // at why a given tick capped lower than the linear ramp.
+        // eslint-disable-next-line no-console
+        console.log(
+          `[tick] smart-warmup adjusted ${linearLimit}→${decision.limit} (${decision.reason})`,
+        );
+      }
+    }
   }
 
   const due = await fetchDueLeads(cfg.db, now, batchSize);
@@ -256,13 +306,27 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
     // A/B variant selection (no variants → use the step itself)
     const variants = await loadVariants(cfg.db, stepDef.id);
     const random = cfg.random ?? Math.random;
-    const variant =
-      variants.length > 0
-        ? pickWeighted(
-            variants.map((v) => ({ item: v, weight: v.weight })),
-            random,
-          )
-        : null;
+    let variant: (typeof variants)[number] | null = null;
+    if (variants.length > 0) {
+      if (cfg.thompsonSampling) {
+        const stats = await loadVariantStats(
+          cfg.db,
+          variants.map((v) => v.id),
+        );
+        const items: ThompsonItem<(typeof variants)[number]>[] = variants.map(
+          (v) => ({
+            item: v,
+            stats: stats.get(v.id) ?? { sends: 0, replies: 0 },
+          }),
+        );
+        variant = pickThompson(items, { random });
+      } else {
+        variant = pickWeighted(
+          variants.map((v) => ({ item: v, weight: v.weight })),
+          random,
+        );
+      }
+    }
     const subjectTemplate = variant?.subjectTemplate ?? stepDef.subjectTemplate;
     const bodyTemplate = variant?.bodyTemplate ?? stepDef.bodyTemplate;
 
@@ -443,6 +507,36 @@ async function fetchRecentBounceStats(
   };
 }
 
+/**
+ * Recent inbox health: bounce + reply counts over the last `windowSize`
+ * sends. Reply attribution is approximate — a send counts as a "reply"
+ * if its campaign-lead is currently in status='replied'. That matches
+ * the heuristic used by Thompson sampling and is plenty for warmup
+ * adjustment.
+ */
+async function fetchHealthStats(
+  db: Db,
+  windowSize: number,
+): Promise<{ sent: number; bounces: number; replies: number }> {
+  const rows = await db
+    .select({
+      bounced: emailsSent.bounced,
+      leadStatus: campaignLeads.status,
+    })
+    .from(emailsSent)
+    .innerJoin(
+      campaignLeads,
+      eq(campaignLeads.id, emailsSent.campaignLeadId),
+    )
+    .orderBy(sql`${emailsSent.sentAt} DESC`)
+    .limit(windowSize);
+  return {
+    sent: rows.length,
+    bounces: rows.filter((r) => r.bounced).length,
+    replies: rows.filter((r) => r.leadStatus === "replied").length,
+  };
+}
+
 async function countSentToday(db: Db, now: Date): Promise<number> {
   const startOfDay = new Date(now);
   startOfDay.setHours(0, 0, 0, 0);
@@ -528,6 +622,47 @@ async function loadVariants(db: Db, stepId: string) {
     })
     .from(sequenceStepVariants)
     .where(eq(sequenceStepVariants.stepId, stepId));
+}
+
+/**
+ * Per-variant historical stats used by Thompson sampling.
+ *
+ * `sends` is the count of emails_sent rows tagged with the variant.
+ * `replies` is the subset of those whose campaign_lead is currently in
+ * status='replied' — an over-attribution heuristic (a lead that saw two
+ * variants A and B before replying credits both), but Thompson sampling
+ * is robust to that level of noise and the simpler query is much
+ * cheaper than tracking which variant the reply specifically answered.
+ */
+async function loadVariantStats(
+  db: Db,
+  variantIds: string[],
+): Promise<Map<string, { sends: number; replies: number }>> {
+  const out = new Map<string, { sends: number; replies: number }>();
+  if (variantIds.length === 0) return out;
+
+  const rows = await db
+    .select({
+      variantId: emailsSent.variantId,
+      sends: sql<number>`COUNT(*)::int`,
+      replies: sql<number>`SUM(CASE WHEN ${campaignLeads.status} = 'replied' THEN 1 ELSE 0 END)::int`,
+    })
+    .from(emailsSent)
+    .innerJoin(
+      campaignLeads,
+      eq(campaignLeads.id, emailsSent.campaignLeadId),
+    )
+    .where(inArray(emailsSent.variantId, variantIds))
+    .groupBy(emailsSent.variantId);
+
+  for (const r of rows) {
+    if (!r.variantId) continue;
+    out.set(r.variantId, {
+      sends: r.sends ?? 0,
+      replies: r.replies ?? 0,
+    });
+  }
+  return out;
 }
 
 /**

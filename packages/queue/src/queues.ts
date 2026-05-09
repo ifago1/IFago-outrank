@@ -11,6 +11,7 @@ export const TICK_QUEUE = "outreach-tick";
 export const DISCOVER_QUEUE = "outreach-discover";
 export const ENRICH_QUEUE = "outreach-enrich";
 export const INBOX_QUEUE = "outreach-inbox";
+export const DIGEST_QUEUE = "outreach-digest";
 
 export interface TickJobData {
   /** Server time the tick was scheduled at, ISO 8601. */
@@ -29,10 +30,15 @@ export interface InboxJobData {
   scheduledAt: string;
 }
 
+export interface DigestJobData {
+  scheduledAt: string;
+}
+
 let _tickQueue: Queue<TickJobData> | undefined;
 let _discoverQueue: Queue<DiscoverJobData> | undefined;
 let _enrichQueue: Queue<EnrichJobData> | undefined;
 let _inboxQueue: Queue<InboxJobData> | undefined;
+let _digestQueue: Queue<DigestJobData> | undefined;
 
 const baseJobOpts = {
   removeOnComplete: { count: 100 },
@@ -75,6 +81,15 @@ export function getInboxQueue(): Queue<InboxJobData> {
     defaultJobOptions: baseJobOpts,
   });
   return _inboxQueue;
+}
+
+export function getDigestQueue(): Queue<DigestJobData> {
+  if (_digestQueue) return _digestQueue;
+  _digestQueue = new Queue<DigestJobData>(DIGEST_QUEUE, {
+    connection: getRedisConnection(),
+    defaultJobOptions: baseJobOpts,
+  });
+  return _digestQueue;
 }
 
 export interface ScheduleOptions {
@@ -152,6 +167,34 @@ export async function scheduleRepeatingInboxPoll(
   );
 }
 
+export interface ScheduleDigestOptions {
+  /** Cron expression. Default "0 8 * * *" — every day at 08:00. */
+  pattern?: string;
+  /** IANA timezone for the cron schedule. Default "Europe/Amsterdam". */
+  tz?: string;
+  jobId?: string;
+}
+
+/**
+ * Daily KPI digest — composes a summary of the previous 24h and emails
+ * it to NOTIFY_EMAIL (or FROM_EMAIL when not set). Defaults to fire
+ * every day at 08:00 Europe/Amsterdam.
+ */
+export async function scheduleRepeatingDigest(
+  opts: ScheduleDigestOptions = {},
+): Promise<void> {
+  const queue = getDigestQueue();
+  const repeat: RepeatOptions = {
+    pattern: opts.pattern ?? "0 8 * * *",
+    tz: opts.tz ?? "Europe/Amsterdam",
+  };
+  await queue.add(
+    "digest",
+    { scheduledAt: new Date().toISOString() },
+    { repeat, jobId: opts.jobId ?? "digest-repeating" },
+  );
+}
+
 export async function closeQueues(): Promise<void> {
   if (_tickQueue) {
     await _tickQueue.close();
@@ -168,6 +211,10 @@ export async function closeQueues(): Promise<void> {
   if (_inboxQueue) {
     await _inboxQueue.close();
     _inboxQueue = undefined;
+  }
+  if (_digestQueue) {
+    await _digestQueue.close();
+    _digestQueue = undefined;
   }
 }
 

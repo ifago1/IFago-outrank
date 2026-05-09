@@ -1,9 +1,16 @@
 import { eq } from "drizzle-orm";
-import { contacts, emailsSent, unsubscribes, type Db } from "@outreach/db";
+import {
+  campaignLeads,
+  contacts,
+  emailsSent,
+  unsubscribes,
+  type Db,
+} from "@outreach/db";
 import { markBounced, markReplied, matchReply } from "@outreach/sequencer";
 import { classify } from "./classifier.js";
 import { ImapClient } from "./imap-client.js";
 import { parseMessage } from "./parse-message.js";
+import { heuristicTriage, ReplyTriage, type TriageResult } from "./triage.js";
 import type {
   Classification,
   ImapConnectionConfig,
@@ -20,6 +27,14 @@ export interface ProcessInboxOptions {
   dryRun?: boolean;
   /** Optional custom client (used by tests). */
   client?: ImapClient;
+  /**
+   * When set, replies are passed through Anthropic for AI triage. Without
+   * a key, a deterministic heuristic still classifies replies — less
+   * precise, but no missing data on the dashboard.
+   */
+  anthropicApiKey?: string | undefined;
+  /** Override the Claude model for triage. Default: claude-haiku-4-5. */
+  triageModel?: string;
   log?: (line: string) => void;
 }
 
@@ -43,6 +58,12 @@ export async function processInbox(
   const log = opts.log ?? (() => {});
   const client = opts.client ?? new ImapClient(opts.imap);
   const ownClient = !opts.client;
+  const triage = opts.anthropicApiKey
+    ? new ReplyTriage({
+        apiKey: opts.anthropicApiKey,
+        ...(opts.triageModel ? { model: opts.triageModel } : {}),
+      })
+    : null;
 
   try {
     await client.open();
@@ -61,12 +82,32 @@ export async function processInbox(
 
         const parsed = await parseMessage(fetched.raw, uid);
         const cls = classify(parsed);
-        await applyClassification(opts.db, parsed, cls, summary, opts.dryRun);
+        await applyClassification(
+          opts.db,
+          parsed,
+          cls,
+          summary,
+          opts.dryRun,
+          triage,
+          log,
+        );
         log(
           `[inbox] uid=${uid} from=${parsed.fromAddress ?? "?"} subject="${(parsed.subject ?? "").slice(0, 60)}" -> ${cls.kind}`,
         );
 
-        if (!opts.dryRun) await client.markSeen(uid);
+        // Replies stay UNSEEN so the user still sees them as bold/new
+        // in their mail client. We tag them with the custom keyword
+        // `outreachprocessed` so the next poll skips them — without
+        // triggering the \Seen flag the mail-client UI cares about.
+        // Bounces / auto-replies / unknowns get \Seen — informational
+        // only, no need to surface to the user.
+        if (!opts.dryRun) {
+          if (cls.kind === "reply") {
+            await client.markProcessed(uid);
+          } else {
+            await client.markSeen(uid);
+          }
+        }
       } catch (err) {
         summary.errors += 1;
         log(
@@ -89,6 +130,8 @@ async function applyClassification(
   cls: Classification,
   summary: PollSummary,
   dryRun: boolean | undefined,
+  triage: ReplyTriage | null,
+  log: (line: string) => void,
 ): Promise<void> {
   if (cls.kind === "auto-reply") {
     summary.ignored += 1;
@@ -110,7 +153,39 @@ async function applyClassification(
       summary.ignored += 1;
       return;
     }
-    if (!dryRun) await markReplied(db, match.campaignLeadId, parsed.date);
+
+    let triageResult: TriageResult;
+    try {
+      triageResult = triage
+        ? await triage.classify({
+            subject: parsed.subject,
+            body: parsed.text,
+          })
+        : heuristicTriage({ subject: parsed.subject, body: parsed.text });
+    } catch (err) {
+      log(
+        `[inbox] triage failed for uid=${parsed.uid}: ${err instanceof Error ? err.message : String(err)} — falling back to heuristic`,
+      );
+      triageResult = heuristicTriage({
+        subject: parsed.subject,
+        body: parsed.text,
+      });
+    }
+
+    if (!dryRun) {
+      await markReplied(db, match.campaignLeadId, parsed.date);
+      await db
+        .update(campaignLeads)
+        .set({
+          replyClassification: triageResult.classification,
+          replySummary: triageResult.summary,
+          replyText: parsed.text.slice(0, 10_000),
+        })
+        .where(eq(campaignLeads.id, match.campaignLeadId));
+    }
+    log(
+      `[inbox] uid=${parsed.uid} reply triage=${triageResult.classification} (${triageResult.source})`,
+    );
     summary.matchedReplies += 1;
     return;
   }

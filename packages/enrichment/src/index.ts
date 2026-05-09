@@ -5,6 +5,8 @@ export type {
   EnrichAndPersistOptions,
   PersistedEnrichment,
 } from "./persist.js";
+export { autoAssignContacts, matchesRule } from "./auto-assign.js";
+export type { AutoAssignSummary } from "./auto-assign.js";
 export { mapWithConcurrency } from "./concurrency.js";
 export type { SettledResult } from "./concurrency.js";
 export { HunterClient } from "./hunter.js";

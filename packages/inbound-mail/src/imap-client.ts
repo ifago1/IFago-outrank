@@ -52,9 +52,22 @@ export class ImapClient {
     this.client = client;
   }
 
+  /** Custom IMAP keyword that marks "outreach-tool already handled this". */
+  static readonly PROCESSED_KEYWORD = "outreachprocessed";
+
+  /**
+   * Returns up to `limit` UIDs that are still UNSEEN AND don't have the
+   * `outreachprocessed` keyword. The keyword lets us skip messages we
+   * already classified — without marking them \Seen — so replies stay
+   * bold in the user's mail client until they read them themselves.
+   */
   async listUnseen(limit: number): Promise<number[]> {
     const c = this.requireClient();
-    const uids = (await c.search({ seen: false }, { uid: true })) || [];
+    const uids =
+      (await c.search(
+        { seen: false, unKeyword: ImapClient.PROCESSED_KEYWORD },
+        { uid: true },
+      )) || [];
     return uids.slice(0, limit);
   }
 
@@ -68,6 +81,18 @@ export class ImapClient {
   async markSeen(uid: number): Promise<void> {
     const c = this.requireClient();
     await c.messageFlagsAdd(String(uid), ["\\Seen"], { uid: true });
+  }
+
+  /**
+   * Tag the message with a custom keyword so the next poll skips it
+   * even though it's still UNSEEN. Survives across IMAP sessions and
+   * mail-client interactions.
+   */
+  async markProcessed(uid: number): Promise<void> {
+    const c = this.requireClient();
+    await c.messageFlagsAdd(String(uid), [ImapClient.PROCESSED_KEYWORD], {
+      uid: true,
+    });
   }
 
   async close(): Promise<void> {

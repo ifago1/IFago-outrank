@@ -70,6 +70,21 @@ export async function buildRuntimeConfig(
       }
     : undefined;
 
+  const thompsonSampling =
+    cfg.VARIANT_SELECTION === "thompson" || cfg.THOMPSON_SAMPLING === "true";
+
+  const smartWarmup =
+    cfg.SMART_WARMUP === "true"
+      ? {
+          ...(cfg.SMART_WARMUP_WINDOW
+            ? { windowSize: Number(cfg.SMART_WARMUP_WINDOW) }
+            : {}),
+          ...(cfg.SMART_WARMUP_MIN_SENT
+            ? { minSent: Number(cfg.SMART_WARMUP_MIN_SENT) }
+            : {}),
+        }
+      : undefined;
+
   return {
     db: input.db,
     mailer,
@@ -85,7 +100,9 @@ export async function buildRuntimeConfig(
     batchSize: input.batchSize ?? (cfg.TICK_BATCH_SIZE ? Number(cfg.TICK_BATCH_SIZE) : 50),
     ...(warmup ? { warmup } : {}),
     ...(bounceCircuit ? { bounceCircuit } : {}),
+    ...(smartWarmup ? { smartWarmup } : {}),
     ...(input.dryRun ? { dryRun: input.dryRun } : {}),
+    ...(thompsonSampling ? { thompsonSampling: true } : {}),
     personalizer,
   };
 }

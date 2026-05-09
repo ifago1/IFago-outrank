@@ -126,6 +126,22 @@ pnpm send-tick                   # echt sturen
 
 Elke CLI ondersteunt `--help` en (waar zinvol) `--dry-run`.
 
+## Automation features (auto-pilot mode)
+
+Naast de basics draaien er een aantal optionele "auto-pilot" features:
+
+| Feature | Trigger | Wat het doet |
+|---|---|---|
+| **Auto-enrichment** | nieuwe lead in `runDiscovery` + 6u backfill-poll | Website-scrape voor contactgegevens, optioneel Hunter |
+| **Auto-assign leads → campagnes** | nieuwe contact via enrichment | Matcht op `auto_assign_*` kolommen op campagnes (niche / city / website_quality) en plaatst lead in eerste matchende actieve campagne |
+| **IMAP reply/bounce detectie** | elke 10 min | Scant FROM_EMAIL mailbox, matched op `In-Reply-To`/`References`, zet `replied_at`/`bounced` |
+| **AI reply-triage** | wanneer `ANTHROPIC_API_KEY` gezet is | Classifeert elke reply als positive / question / negative / out_of_office / referral / unknown — dashboard `/inbox` toont kleurpills + samenvatting |
+| **Thompson-sampling A/B** | wanneer `VARIANT_SELECTION=thompson` | Kiest variant op basis van historische reply-rate i.p.v. statische weights, met cold-start exploration |
+| **Smart warmup** | wanneer `SMART_WARMUP=true` (en `WARMUP_DAYS`/`FLOOR` gezet) | Dailylimit groeit linear, maar wordt × 0.5 bij bounce > 5%, × 0.75 bij bounce > 3%, × 1.25 bij reply > 5% |
+| **Daily digest mail** | cron (default 08:00 Europe/Amsterdam) | Stuurt KPIs van afgelopen 24u naar `DIGEST_EMAIL` (of `FROM_EMAIL`) |
+
+Configureer via `.env` of de Settings-tab — geen restart nodig, settings worden per tick opnieuw gelezen.
+
 ## Pre-send guards (volgorde uit het plan)
 
 `packages/sequencer` evalueert per lead, in deze exacte volgorde:

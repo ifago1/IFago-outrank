@@ -17,6 +17,7 @@
     "@outreach/discovery": "workspace:*",
     "@outreach/enrichment": "workspace:*",
     "@outreach/inbound-mail": "workspace:*",
+    "@outreach/mailer": "workspace:*",
     "@outreach/sequencer": "workspace:*",
     "bullmq": "^5.34.5",
     "drizzle-orm": "^0.36.4",

@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.1",
     "@outreach/db": "workspace:*",
     "@outreach/sequencer": "workspace:*",
     "drizzle-orm": "^0.36.4",

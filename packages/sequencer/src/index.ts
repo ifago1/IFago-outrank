@@ -32,9 +32,29 @@ export type { ObservationInput } from "./personalization.js";
 export { pickWeighted } from "./variant-selector.js";
 export type { Weighted } from "./variant-selector.js";
 
-export { effectiveDailyLimit, evaluateBounceCircuit } from "./health.js";
+export {
+  pickThompson,
+  sampleBeta,
+  sampleGamma,
+} from "./thompson-sampler.js";
+export type {
+  ThompsonItem,
+  ThompsonOptions,
+  VariantStats,
+} from "./thompson-sampler.js";
+
+export {
+  effectiveDailyLimit,
+  evaluateBounceCircuit,
+  adjustForHealth,
+} from "./health.js";
+
+export { loadDigestStats, renderDigest } from "./digest.js";
+export type { DigestStats, RenderedDigest } from "./digest.js";
 export type {
   WarmupOptions,
   BounceCircuitOptions,
   BounceCircuitDecision,
+  SmartWarmupOptions,
+  SmartWarmupDecision,
 } from "./health.js";

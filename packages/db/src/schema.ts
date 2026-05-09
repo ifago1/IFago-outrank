@@ -71,6 +71,17 @@ export const campaigns = pgTable("campaigns", {
   name: text("name").notNull(),
   niche: text("niche"),
   status: text("status").notNull().default("draft"),
+  /**
+   * Auto-assign rules: when enabled, freshly-enriched contacts whose
+   * business matches niche / city / website-quality are automatically
+   * appended as campaign-leads. NULL fields act as wildcards.
+   */
+  autoAssignEnabled: boolean("auto_assign_enabled").notNull().default(false),
+  autoAssignNiche: text("auto_assign_niche"),
+  autoAssignCity: text("auto_assign_city"),
+  autoAssignWebsiteQuality: text("auto_assign_website_quality"),
+  /** Cap on how many leads this campaign may auto-collect. NULL = unbounded. */
+  autoAssignMaxLeads: integer("auto_assign_max_leads"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -116,6 +127,12 @@ export const campaignLeads = pgTable(
     lastEventAt: timestamp("last_event_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** AI-classified reply category: positive / question / negative / oof / referral / unknown. */
+    replyClassification: text("reply_classification"),
+    /** Short AI-generated summary of the reply for at-a-glance triage. */
+    replySummary: text("reply_summary"),
+    /** Raw plaintext body of the reply, capped to ~10kB by the worker. */
+    replyText: text("reply_text"),
   },
   (table) => ({
     campaignContactUnique: uniqueIndex(

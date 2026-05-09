@@ -15,6 +15,7 @@ import { closeDb, getDb, getSetting } from "@outreach/db";
 import {
   closeQueues,
   closeRedis,
+  createDigestWorker,
   createDiscoverWorker,
   createEnrichWorker,
   createInboxWorker,
@@ -78,17 +79,44 @@ const enrichWorker = createEnrichWorker({
   },
 });
 
+const digestWorker = createDigestWorker({
+  buildContext: async () => {
+    const db = getDb();
+    const runtimeCfg = await buildRuntimeConfig({
+      db,
+      unsubscribeSecret: cfg.UNSUBSCRIBE_SECRET,
+    });
+    const notifyEmail =
+      (await getSetting(db, "DIGEST_EMAIL")) ??
+      process.env["DIGEST_EMAIL"];
+    return {
+      db,
+      mailer: runtimeCfg.mailer,
+      fromEmail: runtimeCfg.fromEmail,
+      fromName: runtimeCfg.fromName,
+      ...(notifyEmail ? { notifyEmail } : {}),
+    };
+  },
+});
+
 const inboxWorker = createInboxWorker({
   buildContext: async () => {
     const db = getDb();
     const imap = await buildImapConfig(db);
     if (!imap) return null;
-    return { db, imap };
+    const anthropicApiKey =
+      (await getSetting(db, "ANTHROPIC_API_KEY")) ??
+      process.env["ANTHROPIC_API_KEY"];
+    return {
+      db,
+      imap,
+      ...(anthropicApiKey ? { anthropicApiKey } : {}),
+    };
   },
 });
 
 console.log(
-  "[worker] tick + discover + enrich + inbox workers started — waiting for jobs",
+  "[worker] tick + discover + enrich + inbox + digest workers started — waiting for jobs",
 );
 
 async function shutdown(signal: string): Promise<void> {
@@ -98,6 +126,7 @@ async function shutdown(signal: string): Promise<void> {
     await discoverWorker.close();
     await enrichWorker.close();
     await inboxWorker.close();
+    await digestWorker.close();
     await closeQueues();
     await closeRedis();
     await closeDb();

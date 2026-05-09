@@ -1,5 +1,6 @@
 import { eq, inArray } from "drizzle-orm";
 import { businesses, contacts, type Business, type Db } from "@outreach/db";
+import { autoAssignContacts, type AutoAssignSummary } from "./auto-assign.js";
 import { EnrichmentService } from "./service.js";
 import { HunterClient } from "./hunter.js";
 import { WebsiteScraper } from "./website-scraper.js";
@@ -10,6 +11,8 @@ export interface PersistedEnrichment {
   result: EnrichmentResult | null;
   /** Number of contact rows actually written this run. */
   inserted: number;
+  /** IDs of newly-inserted contact rows (used by auto-assign). */
+  insertedContactIds: string[];
   error: string | null;
 }
 
@@ -22,6 +25,12 @@ export interface EnrichAndPersistOptions {
   concurrency?: number;
   /** Skip writes; useful for `--dry-run`. */
   dryRun?: boolean;
+  /**
+   * After contacts are written, run auto-assign rules on the newly-
+   * created contact IDs. Default true. Set to false in CLI flows where
+   * the operator wants to inspect contacts before they enter campaigns.
+   */
+  autoAssign?: boolean;
 }
 
 /**
@@ -63,16 +72,24 @@ export async function enrichAndPersist(
 
   const out: PersistedEnrichment[] = [];
   const processedIds: string[] = [];
+  const allInsertedContactIds: string[] = [];
 
   for (let i = 0; i < batch.length; i++) {
     const b = rows[i]!;
     const r = batch[i]!;
     if (r.error) {
-      out.push({ business: b, result: null, inserted: 0, error: r.error });
+      out.push({
+        business: b,
+        result: null,
+        inserted: 0,
+        insertedContactIds: [],
+        error: r.error,
+      });
       continue;
     }
     const result = r.result!;
     let inserted = 0;
+    let insertedContactIds: string[] = [];
 
     if (!opts.dryRun && result.emails.length > 0) {
       const insertRows = result.emails.map((e) => ({
@@ -91,10 +108,18 @@ export async function enrichAndPersist(
         })
         .returning({ id: contacts.id });
       inserted = inserted_.length;
+      insertedContactIds = inserted_.map((row) => row.id);
+      allInsertedContactIds.push(...insertedContactIds);
     }
 
     processedIds.push(b.id);
-    out.push({ business: b, result, inserted, error: null });
+    out.push({
+      business: b,
+      result,
+      inserted,
+      insertedContactIds,
+      error: null,
+    });
   }
 
   if (!opts.dryRun && processedIds.length > 0) {
@@ -109,6 +134,28 @@ export async function enrichAndPersist(
         .update(businesses)
         .set({ enrichmentAttemptedAt: now })
         .where(inArray(businesses.id, processedIds));
+    }
+  }
+
+  if (
+    !opts.dryRun &&
+    opts.autoAssign !== false &&
+    allInsertedContactIds.length > 0
+  ) {
+    let assigned: AutoAssignSummary | undefined;
+    try {
+      assigned = await autoAssignContacts(db, allInsertedContactIds);
+    } catch {
+      // auto-assign mag een enrichment-run nooit doen mislukken; logged
+      // op caller-niveau.
+    }
+    if (assigned && assigned.assigned > 0) {
+      const detail = assigned.perCampaign
+        .map((p) => `${p.campaignName}=${p.count}`)
+        .join(", ");
+      console.log(
+        `[auto-assign] wrote ${assigned.assigned} lead(s) (${detail})`,
+      );
     }
   }
 

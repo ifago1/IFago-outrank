@@ -8,7 +8,7 @@
  * CLI is mainly for one-off / debugging runs.
  */
 import { parseArgs } from "node:util";
-import { closeDb, getDb } from "@outreach/db";
+import { closeDb, getDb, getSetting } from "@outreach/db";
 import { processInbox } from "@outreach/inbound-mail";
 import { buildImapConfig } from "./lib/imap-config.js";
 
@@ -67,11 +67,16 @@ async function main(): Promise<void> {
     `Polling ${imap.user}@${imap.host}:${imap.port} (folder=${imap.folder ?? "INBOX"})...`,
   );
 
+  const anthropicApiKey =
+    (await getSetting(db, "ANTHROPIC_API_KEY")) ??
+    process.env["ANTHROPIC_API_KEY"];
+
   const summary = await processInbox({
     db,
     imap,
     batchSize: opts.limit,
     dryRun: opts.dryRun,
+    ...(anthropicApiKey ? { anthropicApiKey } : {}),
     log: (line) => console.log(line),
   });
 
