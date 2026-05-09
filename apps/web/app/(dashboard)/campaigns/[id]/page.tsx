@@ -50,7 +50,10 @@ export default async function CampaignDetailPage({
           niche: campaign.autoAssignNiche,
           city: campaign.autoAssignCity,
           websiteQuality: campaign.autoAssignWebsiteQuality,
+          minScore: campaign.autoAssignMinScore,
+          maxScore: campaign.autoAssignMaxScore,
           maxLeads: campaign.autoAssignMaxLeads,
+          aiPersonalizeFullBody: campaign.aiPersonalizeFullBody,
         }}
       />
       <SequenceEditor campaignId={id} steps={stepViews} />

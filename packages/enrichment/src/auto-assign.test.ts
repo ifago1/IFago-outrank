@@ -100,4 +100,83 @@ describe("matchesRule", () => {
       }),
     ).toBe(false);
   });
+
+  describe("score range (audit_detail.htmlScore)", () => {
+    const withScore = (score: number | null) => ({
+      category: null,
+      city: null,
+      websiteQuality: null,
+      auditDetail: score == null ? null : { htmlScore: score },
+    });
+
+    it("matches when score is within range", () => {
+      expect(
+        matchesRule(withScore(35), {
+          niche: null,
+          city: null,
+          websiteQuality: null,
+          minScore: 20,
+          maxScore: 50,
+        }),
+      ).toBe(true);
+    });
+
+    it("rejects when score is below minScore", () => {
+      expect(
+        matchesRule(withScore(15), {
+          niche: null,
+          city: null,
+          websiteQuality: null,
+          minScore: 20,
+          maxScore: null,
+        }),
+      ).toBe(false);
+    });
+
+    it("rejects when score is above maxScore", () => {
+      expect(
+        matchesRule(withScore(85), {
+          niche: null,
+          city: null,
+          websiteQuality: null,
+          minScore: null,
+          maxScore: 50,
+        }),
+      ).toBe(false);
+    });
+
+    it("rejects when audit is missing entirely and a range is required", () => {
+      expect(
+        matchesRule(withScore(null), {
+          niche: null,
+          city: null,
+          websiteQuality: null,
+          minScore: 20,
+          maxScore: null,
+        }),
+      ).toBe(false);
+    });
+
+    it("ignores missing audit when no range is set", () => {
+      expect(
+        matchesRule(withScore(null), {
+          niche: null,
+          city: null,
+          websiteQuality: null,
+        }),
+      ).toBe(true);
+    });
+
+    it("only minScore is bounded — no upper limit", () => {
+      expect(
+        matchesRule(withScore(95), {
+          niche: null,
+          city: null,
+          websiteQuality: null,
+          minScore: 80,
+          maxScore: null,
+        }),
+      ).toBe(true);
+    });
+  });
 });

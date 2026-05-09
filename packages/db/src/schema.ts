@@ -80,8 +80,25 @@ export const campaigns = pgTable("campaigns", {
   autoAssignNiche: text("auto_assign_niche"),
   autoAssignCity: text("auto_assign_city"),
   autoAssignWebsiteQuality: text("auto_assign_website_quality"),
+  /**
+   * Numeric score range over `businesses.audit_detail->>'htmlScore'`
+   * (0-100). NULL = no lower / upper bound. Bucket + range can be
+   * combined: e.g. bucket="outdated" AND maxScore=40 narrows to the
+   * worst end of outdated.
+   */
+  autoAssignMinScore: integer("auto_assign_min_score"),
+  autoAssignMaxScore: integer("auto_assign_max_score"),
   /** Cap on how many leads this campaign may auto-collect. NULL = unbounded. */
   autoAssignMaxLeads: integer("auto_assign_max_leads"),
+  /**
+   * When true, every send for this campaign gets a fresh AI-written
+   * subject + body — the step's templates are passed to the model as
+   * tone reference, the actual mail is regenerated per (lead, step).
+   * Falls back to the templated render if the AI call fails.
+   */
+  aiPersonalizeFullBody: boolean("ai_personalize_full_body")
+    .notNull()
+    .default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

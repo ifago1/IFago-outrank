@@ -64,6 +64,13 @@
       "when": 1746446400000,
       "tag": "0008_automation_extensions",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1746792000000,
+      "tag": "0009_score_range_and_ai_body",
+      "breakpoints": true
     }
   ]
 }

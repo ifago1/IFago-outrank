@@ -12,7 +12,10 @@ import {
 } from "@outreach/db";
 import type { Mailer } from "@outreach/mailer";
 import { render, signUnsubscribeToken } from "@outreach/templates";
-import type { AnthropicPersonalizer } from "@outreach/ai-personalization";
+import type {
+  AnthropicBodyWriter,
+  AnthropicPersonalizer,
+} from "@outreach/ai-personalization";
 import {
   preSendCheck,
   type SendWindow,
@@ -85,6 +88,14 @@ export interface RunTickConfig {
    */
   personalizer?: AnthropicPersonalizer | undefined;
   /**
+   * Optional Claude-backed body writer. When set AND the lead's campaign
+   * has `ai_personalize_full_body = true`, every send gets a fresh
+   * subject + body generated for that specific lead. The step's
+   * templates are passed as tone reference. AI failures fall back to
+   * the templated render — sends never block on the LLM.
+   */
+  bodyWriter?: AnthropicBodyWriter | undefined;
+  /**
    * Override Math.random — used by tests to make A/B variant selection
    * deterministic.
    */
@@ -132,6 +143,8 @@ interface DueRow {
   cachedObservation: string | null;
   campaignNiche: string | null;
   campaignName: string;
+  campaignAiPersonalizeFullBody: boolean;
+  businessWebsiteQuality: string | null;
 }
 
 /**
@@ -342,8 +355,39 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
       unsubscribe_url: unsubUrl,
     };
 
-    const subject = render(subjectTemplate, vars, { onMissing: "blank" });
-    const body = render(bodyTemplate, vars, { onMissing: "blank" });
+    let subject = render(subjectTemplate, vars, { onMissing: "blank" });
+    let body = render(bodyTemplate, vars, { onMissing: "blank" });
+
+    // Per-lead AI personalization: when the campaign opts in AND a
+    // bodyWriter is configured, regenerate subject + body for this
+    // specific lead. The unsubscribe link gets re-appended below since
+    // the LLM doesn't see that placeholder.
+    if (row.campaignAiPersonalizeFullBody && cfg.bodyWriter) {
+      try {
+        const ai = await cfg.bodyWriter.generate({
+          businessName: row.businessName,
+          city: row.businessCity,
+          niche: row.campaignNiche,
+          rating:
+            row.businessRating != null ? Number(row.businessRating) : null,
+          reviewsCount: row.businessReviewsCount,
+          websiteQuality: row.businessWebsiteQuality,
+          observation,
+          stepOrder: stepDef.stepOrder,
+          subjectTemplate,
+          bodyTemplate,
+          senderName: cfg.fromName,
+        });
+        if (ai.source === "ai") {
+          subject = ai.subject;
+          // Append the unsubscribe footer the LLM doesn't generate.
+          body = `${ai.body}\n\n--\nUitschrijven: ${unsubUrl}`;
+        }
+        // ai.source === "fallback" → keep the templated render above.
+      } catch {
+        // Any AI error → silently fall back to the templated render.
+      }
+    }
 
     if (cfg.dryRun) {
       outcomes.push({
@@ -456,6 +500,8 @@ async function fetchDueLeads(
       cachedObservation: businesses.personalObservation,
       campaignNiche: campaigns.niche,
       campaignName: campaigns.name,
+      campaignAiPersonalizeFullBody: campaigns.aiPersonalizeFullBody,
+      businessWebsiteQuality: businesses.websiteQuality,
     })
     .from(campaignLeads)
     .innerJoin(contacts, eq(contacts.id, campaignLeads.contactId))

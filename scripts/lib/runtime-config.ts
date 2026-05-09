@@ -7,6 +7,7 @@
 import { type Db } from "@outreach/db";
 import { createMailer, type Mailer } from "@outreach/mailer";
 import {
+  AnthropicBodyWriter,
   AnthropicPersonalizer,
 } from "@outreach/ai-personalization";
 import {
@@ -38,6 +39,15 @@ export async function buildRuntimeConfig(
     ? new AnthropicPersonalizer({
         apiKey: cfg.ANTHROPIC_API_KEY,
         ...(cfg.AI_MODEL ? { model: cfg.AI_MODEL } : {}),
+      })
+    : undefined;
+  // Body writer reuses the same Anthropic key but defaults to a cheaper
+  // Haiku model (per-send call, runs many times per day). Override via
+  // AI_BODY_MODEL.
+  const bodyWriter = cfg.ANTHROPIC_API_KEY
+    ? new AnthropicBodyWriter({
+        apiKey: cfg.ANTHROPIC_API_KEY,
+        ...(cfg.AI_BODY_MODEL ? { model: cfg.AI_BODY_MODEL } : {}),
       })
     : undefined;
 
@@ -104,6 +114,7 @@ export async function buildRuntimeConfig(
     ...(input.dryRun ? { dryRun: input.dryRun } : {}),
     ...(thompsonSampling ? { thompsonSampling: true } : {}),
     personalizer,
+    bodyWriter,
   };
 }
 

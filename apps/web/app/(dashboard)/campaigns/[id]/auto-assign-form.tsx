@@ -9,7 +9,10 @@ export interface AutoAssignView {
   niche: string | null;
   city: string | null;
   websiteQuality: string | null;
+  minScore: number | null;
+  maxScore: number | null;
   maxLeads: number | null;
+  aiPersonalizeFullBody: boolean;
 }
 
 export function AutoAssignForm({
@@ -28,8 +31,17 @@ export function AutoAssignForm({
   const [websiteQuality, setWebsiteQuality] = useState(
     initial.websiteQuality ?? "",
   );
+  const [minScore, setMinScore] = useState(
+    initial.minScore != null ? String(initial.minScore) : "",
+  );
+  const [maxScore, setMaxScore] = useState(
+    initial.maxScore != null ? String(initial.maxScore) : "",
+  );
   const [maxLeads, setMaxLeads] = useState(
     initial.maxLeads != null ? String(initial.maxLeads) : "",
+  );
+  const [aiPersonalizeFullBody, setAiPersonalizeFullBody] = useState(
+    initial.aiPersonalizeFullBody,
   );
 
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -121,6 +133,72 @@ export function AutoAssignForm({
               style={inputStyle}
             />
           </Field>
+
+          <Field
+            label="Min score (0-100)"
+            hint="Filter op website-score uit audit_detail.htmlScore. Bijv. 0 = ondergrens 'outdated'. Leeg = geen ondergrens."
+          >
+            <input
+              type="number"
+              name="autoAssignMinScore"
+              value={minScore}
+              onChange={(e) => setMinScore(e.target.value)}
+              placeholder="0"
+              min="0"
+              max="100"
+              disabled={!enabled}
+              style={inputStyle}
+            />
+          </Field>
+
+          <Field
+            label="Max score (0-100)"
+            hint="Bijv. 50 = alleen sites met outdated/decent score. Leeg = geen bovengrens."
+          >
+            <input
+              type="number"
+              name="autoAssignMaxScore"
+              value={maxScore}
+              onChange={(e) => setMaxScore(e.target.value)}
+              placeholder="50"
+              min="0"
+              max="100"
+              disabled={!enabled}
+              style={inputStyle}
+            />
+          </Field>
+        </div>
+
+        <div
+          style={{
+            marginTop: "0.5rem",
+            paddingTop: "1rem",
+            borderTop: "1px solid #20252e",
+          }}
+        >
+          <label style={toggleLabelStyle}>
+            <input
+              type="checkbox"
+              name="aiPersonalizeFullBody"
+              checked={aiPersonalizeFullBody}
+              onChange={(e) => setAiPersonalizeFullBody(e.target.checked)}
+            />
+            <span>AI-gegenereerde mail per lead</span>
+          </label>
+          <p
+            style={{
+              ...hintStyle,
+              marginTop: "0.5rem",
+              maxWidth: "44rem",
+            }}
+          >
+            Wanneer aan, wordt elke verstuurde mail in deze campagne live
+            geschreven door Claude — uniek per lead, met de step-templates
+            als toon-referentie. Werkt het beste als je de templates kort
+            houdt (toon, niet inhoud). Vereist <code>ANTHROPIC_API_KEY</code>{" "}
+            in Settings. Bij AI-fout valt 'ie automatisch terug op de
+            template-render — sends gaan dus altijd door.
+          </p>
         </div>
 
         <div style={actionsStyle}>

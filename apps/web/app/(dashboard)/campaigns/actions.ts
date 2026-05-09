@@ -106,12 +106,28 @@ export async function updateAutoAssign(
   ).trim();
   const maxLeadsRaw = String(form.get("autoAssignMaxLeads") ?? "").trim();
   const maxLeads = maxLeadsRaw ? Math.max(0, Number(maxLeadsRaw) || 0) : null;
+  const minScoreRaw = String(form.get("autoAssignMinScore") ?? "").trim();
+  const maxScoreRaw = String(form.get("autoAssignMaxScore") ?? "").trim();
+  const aiPersonalizeFullBody = form.get("aiPersonalizeFullBody") === "on";
 
   const validQuality = new Set(["", "outdated", "decent", "good", "none"]);
   if (!validQuality.has(websiteQuality)) {
     return {
       ok: false,
       message: `Onbekende website-quality "${websiteQuality}".`,
+    };
+  }
+
+  const minScore = minScoreRaw ? clampScore(Number(minScoreRaw)) : null;
+  const maxScore = maxScoreRaw ? clampScore(Number(maxScoreRaw)) : null;
+  if (
+    minScore != null &&
+    maxScore != null &&
+    minScore > maxScore
+  ) {
+    return {
+      ok: false,
+      message: `Min-score (${minScore}) mag niet hoger zijn dan max-score (${maxScore}).`,
     };
   }
 
@@ -123,7 +139,10 @@ export async function updateAutoAssign(
       autoAssignNiche: niche || null,
       autoAssignCity: city || null,
       autoAssignWebsiteQuality: websiteQuality || null,
+      autoAssignMinScore: minScore,
+      autoAssignMaxScore: maxScore,
       autoAssignMaxLeads: maxLeads,
+      aiPersonalizeFullBody,
     })
     .where(eq(campaigns.id, id));
 
@@ -135,6 +154,11 @@ export async function updateAutoAssign(
       ? "Auto-assign aangezet. Nieuwe leads die matchen worden automatisch toegevoegd."
       : "Auto-assign uitgezet.",
   };
+}
+
+function clampScore(n: number): number | null {
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, Math.round(n)));
 }
 
 export async function updateSequenceStep(

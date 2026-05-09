@@ -43,6 +43,8 @@ export async function autoAssignContacts(
       niche: campaigns.autoAssignNiche,
       city: campaigns.autoAssignCity,
       websiteQuality: campaigns.autoAssignWebsiteQuality,
+      minScore: campaigns.autoAssignMinScore,
+      maxScore: campaigns.autoAssignMaxScore,
       maxLeads: campaigns.autoAssignMaxLeads,
     })
     .from(campaigns)
@@ -64,6 +66,7 @@ export async function autoAssignContacts(
       category: businesses.category,
       city: businesses.city,
       websiteQuality: businesses.websiteQuality,
+      auditDetail: businesses.auditDetail,
     })
     .from(contacts)
     .innerJoin(businesses, eq(businesses.id, contacts.businessId))
@@ -87,7 +90,14 @@ export async function autoAssignContacts(
     if (remaining <= 0) continue;
 
     const matches = eligibleContacts.filter(
-      (c) => matchesRule(c, rule) && remaining-- > 0,
+      (c) =>
+        matchesRule(c, {
+          niche: rule.niche,
+          city: rule.city,
+          websiteQuality: rule.websiteQuality,
+          minScore: rule.minScore,
+          maxScore: rule.maxScore,
+        }) && remaining-- > 0,
     );
     if (matches.length === 0) continue;
 
@@ -125,19 +135,47 @@ interface ContactRow {
   category: string | null;
   city: string | null;
   websiteQuality: string | null;
+  auditDetail?: unknown;
 }
 
 interface RuleRow {
   niche: string | null;
   city: string | null;
   websiteQuality: string | null;
+  minScore?: number | null;
+  maxScore?: number | null;
 }
 
 export function matchesRule(c: ContactRow, r: RuleRow): boolean {
   if (r.niche && !equalsCi(c.category, r.niche)) return false;
   if (r.city && !equalsCi(c.city, r.city)) return false;
   if (r.websiteQuality && c.websiteQuality !== r.websiteQuality) return false;
+
+  // Score range — only enforced when at least one bound is set. We pull
+  // the htmlScore (0-100) out of audit_detail. When the lead has no
+  // audit yet, the range gate fails (we can't claim a match without
+  // evidence). Sites with no audit fall through; bucket-only campaigns
+  // ignore the score check.
+  if (r.minScore != null || r.maxScore != null) {
+    const score = extractHtmlScore(c.auditDetail);
+    if (score == null) return false;
+    if (r.minScore != null && score < r.minScore) return false;
+    if (r.maxScore != null && score > r.maxScore) return false;
+  }
   return true;
+}
+
+/**
+ * Pulls the numeric htmlScore (0-100) out of the JSON in
+ * businesses.audit_detail. The shape is set by
+ * @outreach/website-quality's `runCompositeAudit`. We coerce defensively
+ * — old rows might miss the field.
+ */
+export function extractHtmlScore(audit: unknown): number | null {
+  if (!audit || typeof audit !== "object") return null;
+  const score = (audit as Record<string, unknown>)["htmlScore"];
+  if (typeof score !== "number" || !Number.isFinite(score)) return null;
+  return score;
 }
 
 function equalsCi(a: string | null, b: string | null): boolean {
