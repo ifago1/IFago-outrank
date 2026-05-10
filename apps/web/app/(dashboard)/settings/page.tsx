@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export interface FieldDef {
   key: SettingKey;
   label: string;
-  type: "text" | "email" | "url" | "number" | "password" | "select";
+  type: "text" | "email" | "url" | "number" | "password" | "select" | "textarea";
   placeholder?: string;
   options?: { value: string; label: string }[];
   hint?: string;
@@ -95,6 +95,14 @@ const SECTIONS: Section[] = [
       { key: "FROM_EMAIL", label: "From email", type: "email", placeholder: "noreply@jouw-domein.nl", hint: "Moet een verified sender zijn bij je provider." },
       { key: "FROM_NAME", label: "From naam", type: "text" },
       { key: "REPLY_TO_EMAIL", label: "Reply-To email", type: "email", hint: "Optioneel — replies komen hier binnen." },
+      {
+        key: "EMAIL_SIGNATURE",
+        label: "Vaste handtekening",
+        type: "textarea",
+        placeholder:
+          "Met vriendelijke groet,\nMax van iFago\nhallo@ifago.nl · +31 6 12345678\nwww.ifago.nl",
+        hint: "Multi-line. Wordt aan elke verstuurde mail toegevoegd zoals 'ie hier staat. AI mag dit niet wijzigen — bestaande sign-offs ('Groet, ...') worden vooraf weggeknipt zodat 'ie niet dubbel staat.",
+      },
       { key: "PUBLIC_BASE_URL", label: "Public base URL", type: "url", placeholder: "https://outreach.jouw-domein.nl", hint: "Gebruikt in unsubscribe-links." },
     ],
   },

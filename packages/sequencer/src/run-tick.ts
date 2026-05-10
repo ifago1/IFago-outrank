@@ -107,6 +107,14 @@ export interface RunTickConfig {
    * Default false to keep behavior unchanged for existing campaigns.
    */
   thompsonSampling?: boolean;
+  /**
+   * Fixed signature appended verbatim to every email — bypasses both
+   * template variables and AI body-writer. Multi-line text. When set,
+   * any trailing sign-off in the rendered body ("Groet, …", "Met
+   * vriendelijke groet, …") is stripped and replaced with this block.
+   * Use to guarantee phone/website/disclaimer text is always present.
+   */
+  signature?: string;
 }
 
 export interface SendOutcome {
@@ -355,10 +363,14 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
       personal_observation: observation,
       sender_name: cfg.fromName,
       unsubscribe_url: unsubUrl,
+      // {{signature}} placeholder — templated bodies that reference it
+      // get the fixed signature block. Empty string if not configured.
+      signature: cfg.signature ?? "",
     };
 
     let subject = render(subjectTemplate, vars, { onMissing: "blank" });
     let body = render(bodyTemplate, vars, { onMissing: "blank" });
+    const signature = cfg.signature?.trim();
 
     // Per-lead AI personalization: when the campaign opts in AND a
     // bodyWriter is configured, regenerate subject + body for this
@@ -380,6 +392,7 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
           subjectTemplate,
           bodyTemplate,
           senderName: cfg.fromName,
+          ...(signature ? { hasFixedSignature: true } : {}),
           ...(audit.htmlScore != null ? { websiteScore: audit.htmlScore } : {}),
           ...(audit.summary ? { websiteSummary: audit.summary } : {}),
           ...(audit.weaknesses.length > 0
@@ -391,8 +404,16 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
         });
         if (ai.source === "ai") {
           subject = ai.subject;
-          // Append the unsubscribe footer the LLM doesn't generate.
-          body = `${ai.body}\n\n--\nUitschrijven: ${unsubUrl}`;
+          // If a fixed signature is configured, the AI was instructed
+          // to omit the sign-off — but defensively strip any trailing
+          // "Groet, X" block in case it didn't listen, then append the
+          // fixed signature.
+          let finalBody = ai.body;
+          if (signature) {
+            finalBody = stripTrailingSignOff(finalBody);
+            finalBody = `${finalBody}\n\n${signature}`;
+          }
+          body = `${finalBody}\n\n--\nUitschrijven: ${unsubUrl}`;
         } else {
           // ai.source === "fallback" → model returned malformed JSON.
           // Surface this so the operator notices a degraded mode.
@@ -849,4 +870,17 @@ function extractAuditFields(raw: unknown): {
         )
       : [];
   return { htmlScore, summary, weaknesses, strengths };
+}
+
+/**
+ * Remove a trailing sign-off block from an AI-written body so a fixed
+ * signature can replace it without doubling up. Matches common Dutch
+ * variants ("Met vriendelijke groet,", "Groet,", "Mvg,") followed by
+ * up to 3 closing lines (the name, optional title). Defensive — if no
+ * pattern matches the body is returned unchanged.
+ */
+export function stripTrailingSignOff(body: string): string {
+  const re =
+    /\n\s*(met\s+(vriendelijke\s+)?groet[,.!]?|vriendelijke\s+groet[,.!]?|groet[,.!]?|mvg[,.!]?|hartelijke\s+groet[,.!]?)\s*(\n[^\n]{0,80}){0,3}\s*$/i;
+  return body.replace(re, "").trimEnd();
 }

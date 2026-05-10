@@ -26,6 +26,12 @@ export interface BodyWriterInput {
   bodyTemplate: string;
   /** Sender's name, for sign-off. */
   senderName: string;
+  /**
+   * When true, the system appends a fixed signature server-side. The
+   * AI is instructed to NOT add a sign-off ("Groet, …") so we don't
+   * end up with a doubled signature.
+   */
+  hasFixedSignature?: boolean;
   /** Optional review snippets (max 3, each ≤ 200 chars). */
   reviewSnippets?: string[];
   /**
@@ -78,7 +84,7 @@ Inhoud:
 - Wanneer er een "Website-score" is — kalibreer de toon: score < 40 → er is duidelijk ruimte; 40-70 → "kleine optimalisaties"; > 70 → niet over website beginnen, focus op de observation/reviews.
 - Sluit aan bij de stap-volgnummer (step 1 = eerste mail, step 2/3 = vriendelijke follow-up, niet hetzelfde verhaal opnieuw).
 - Body mag verwijzen naar wat je voor hun website zou kunnen doen, maar: één punt, niet drie. Geen lijstjes.
-- Sluit af met "Groet, <sender_name>" op een aparte regel.
+- Sluit af met "Groet, <sender_name>" op een aparte regel — TENZIJ de input "Vaste handtekening: ja" bevat. Dan sluit je af met JE LAATSTE INHOUDS-ZIN en GEEN sign-off (geen "Groet,", geen naam) — een vaste handtekening wordt server-side toegevoegd.
 - Geen unsubscribe-link toevoegen — die wordt door de mailer gegenereerd.
 
 Subject:
@@ -237,6 +243,7 @@ export function buildUserPrompt(input: BodyWriterInput): string {
   }
   parts.push(`Step: ${input.stepOrder}`);
   parts.push(`Sender: ${input.senderName}`);
+  parts.push(`Vaste handtekening: ${input.hasFixedSignature ? "ja" : "nee"}`);
   parts.push(`Subject template: ${input.subjectTemplate}`);
   parts.push(`Body template: ${input.bodyTemplate.replace(/\n/g, "\\n")}`);
   return parts.join("\n");

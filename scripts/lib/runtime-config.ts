@@ -113,6 +113,7 @@ export async function buildRuntimeConfig(
     ...(smartWarmup ? { smartWarmup } : {}),
     ...(input.dryRun ? { dryRun: input.dryRun } : {}),
     ...(thompsonSampling ? { thompsonSampling: true } : {}),
+    ...(cfg.EMAIL_SIGNATURE ? { signature: cfg.EMAIL_SIGNATURE } : {}),
     personalizer,
     bodyWriter,
   };

@@ -25,6 +25,7 @@ export const SETTING_KEYS = [
   "FROM_EMAIL",
   "FROM_NAME",
   "REPLY_TO_EMAIL",
+  "EMAIL_SIGNATURE",
   "PUBLIC_BASE_URL",
   // External APIs
   "GOOGLE_PLACES_API_KEY",
