@@ -145,6 +145,8 @@ interface DueRow {
   campaignName: string;
   campaignAiPersonalizeFullBody: boolean;
   businessWebsiteQuality: string | null;
+  /** Full audit JSON. We extract htmlScore + AI summary/strengths/weaknesses. */
+  businessAuditDetail: unknown;
 }
 
 /**
@@ -364,6 +366,7 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
     // the LLM doesn't see that placeholder.
     if (row.campaignAiPersonalizeFullBody && cfg.bodyWriter) {
       try {
+        const audit = extractAuditFields(row.businessAuditDetail);
         const ai = await cfg.bodyWriter.generate({
           businessName: row.businessName,
           city: row.businessCity,
@@ -377,6 +380,14 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
           subjectTemplate,
           bodyTemplate,
           senderName: cfg.fromName,
+          ...(audit.htmlScore != null ? { websiteScore: audit.htmlScore } : {}),
+          ...(audit.summary ? { websiteSummary: audit.summary } : {}),
+          ...(audit.weaknesses.length > 0
+            ? { websiteWeaknesses: audit.weaknesses }
+            : {}),
+          ...(audit.strengths.length > 0
+            ? { websiteStrengths: audit.strengths }
+            : {}),
         });
         if (ai.source === "ai") {
           subject = ai.subject;
@@ -513,6 +524,7 @@ async function fetchDueLeads(
       campaignName: campaigns.name,
       campaignAiPersonalizeFullBody: campaigns.aiPersonalizeFullBody,
       businessWebsiteQuality: businesses.websiteQuality,
+      businessAuditDetail: businesses.auditDetail,
     })
     .from(campaignLeads)
     .innerJoin(contacts, eq(contacts.id, campaignLeads.contactId))
@@ -800,4 +812,41 @@ function extractReviewSnippets(raw: unknown): string[] {
     }
   }
   return out;
+}
+
+/**
+ * Pull the bits we want out of businesses.audit_detail (a JSON dump
+ * from @outreach/website-quality's runCompositeAudit). Defensive — old
+ * rows or partial audits return safe defaults instead of throwing.
+ */
+function extractAuditFields(raw: unknown): {
+  htmlScore: number | null;
+  summary: string | null;
+  weaknesses: string[];
+  strengths: string[];
+} {
+  if (!raw || typeof raw !== "object") {
+    return { htmlScore: null, summary: null, weaknesses: [], strengths: [] };
+  }
+  const obj = raw as Record<string, unknown>;
+  const htmlScore =
+    typeof obj["htmlScore"] === "number" ? (obj["htmlScore"] as number) : null;
+  const ai = (obj["ai"] ?? null) as Record<string, unknown> | null;
+  const summary =
+    ai && typeof ai["summary"] === "string"
+      ? (ai["summary"] as string)
+      : null;
+  const weaknesses =
+    ai && Array.isArray(ai["weaknesses"])
+      ? (ai["weaknesses"] as unknown[]).filter(
+          (s): s is string => typeof s === "string",
+        )
+      : [];
+  const strengths =
+    ai && Array.isArray(ai["strengths"])
+      ? (ai["strengths"] as unknown[]).filter(
+          (s): s is string => typeof s === "string",
+        )
+      : [];
+  return { htmlScore, summary, weaknesses, strengths };
 }

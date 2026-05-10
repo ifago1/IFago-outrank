@@ -28,6 +28,22 @@ export interface BodyWriterInput {
   senderName: string;
   /** Optional review snippets (max 3, each ≤ 200 chars). */
   reviewSnippets?: string[];
+  /**
+   * Numeric website-quality score 0-100 from the audit. Lower = more
+   * dated. Lets the AI calibrate how aggressive to be about offering
+   * a redesign.
+   */
+  websiteScore?: number | null;
+  /**
+   * One-line Dutch summary from the AI website-audit ("De site werkt
+   * maar oogt verouderd, mobiel niet optimaal."). Use as concrete
+   * hook for the email.
+   */
+  websiteSummary?: string | null;
+  /** Up to 5 weakness-bullets from the audit (e.g. "geen viewport"). */
+  websiteWeaknesses?: string[];
+  /** Up to 5 strength-bullets from the audit. */
+  websiteStrengths?: string[];
 }
 
 export interface BodyWriterResult {
@@ -58,6 +74,8 @@ Toon en stijl:
 
 Inhoud:
 - Open met iets specifieks over hun bedrijf — gebruik de "Personal observation" als hint, of als die ontbreekt iets uit reviews/rating/locatie.
+- Wanneer er een "Website-audit-samenvatting" of "Website-zwakheden" in de input staat — gebruik 1 concrete bevinding ALS HOOK voor de mail. Bijvoorbeeld "site is niet mobielvriendelijk" → "Op mobiel werkt jullie site nu nog niet helemaal soepel — terwijl 70% van je bezoekers daarvandaan komt." NOOIT meer dan één tech-detail noemen, en altijd in business-impact-taal (niet jargon: zeg "snelheid" niet "Lighthouse score 23").
+- Wanneer er een "Website-score" is — kalibreer de toon: score < 40 → er is duidelijk ruimte; 40-70 → "kleine optimalisaties"; > 70 → niet over website beginnen, focus op de observation/reviews.
 - Sluit aan bij de stap-volgnummer (step 1 = eerste mail, step 2/3 = vriendelijke follow-up, niet hetzelfde verhaal opnieuw).
 - Body mag verwijzen naar wat je voor hun website zou kunnen doen, maar: één punt, niet drie. Geen lijstjes.
 - Sluit af met "Groet, <sender_name>" op een aparte regel.
@@ -175,6 +193,35 @@ export function buildUserPrompt(input: BodyWriterInput): string {
   }
   if (input.websiteQuality) {
     parts.push(`Website-kwaliteit: ${input.websiteQuality}`);
+  }
+  if (
+    typeof input.websiteScore === "number" &&
+    Number.isFinite(input.websiteScore)
+  ) {
+    parts.push(`Website-score: ${Math.round(input.websiteScore)}/100`);
+  }
+  if (input.websiteSummary) {
+    parts.push(
+      `Website-audit-samenvatting: ${input.websiteSummary.replace(/\s+/g, " ").trim().slice(0, 400)}`,
+    );
+  }
+  if (input.websiteWeaknesses && input.websiteWeaknesses.length > 0) {
+    const trimmed = input.websiteWeaknesses
+      .slice(0, 5)
+      .map((s) => s.replace(/\s+/g, " ").trim().slice(0, 160))
+      .filter(Boolean)
+      .map((s) => `- ${s}`)
+      .join("\n");
+    parts.push(`Website-zwakheden:\n${trimmed}`);
+  }
+  if (input.websiteStrengths && input.websiteStrengths.length > 0) {
+    const trimmed = input.websiteStrengths
+      .slice(0, 5)
+      .map((s) => s.replace(/\s+/g, " ").trim().slice(0, 160))
+      .filter(Boolean)
+      .map((s) => `- ${s}`)
+      .join("\n");
+    parts.push(`Website-sterke punten:\n${trimmed}`);
   }
   if (input.observation) {
     parts.push(`Personal observation: ${input.observation}`);
