@@ -382,10 +382,21 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
           subject = ai.subject;
           // Append the unsubscribe footer the LLM doesn't generate.
           body = `${ai.body}\n\n--\nUitschrijven: ${unsubUrl}`;
+        } else {
+          // ai.source === "fallback" → model returned malformed JSON.
+          // Surface this so the operator notices a degraded mode.
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[tick] AI body fallback for ${row.email} (model returned malformed output) — using template`,
+          );
         }
-        // ai.source === "fallback" → keep the templated render above.
-      } catch {
-        // Any AI error → silently fall back to the templated render.
+      } catch (err) {
+        // Auth, rate-limit, network — log so operators can see why AI
+        // is silently degraded. Send still goes through with template.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[tick] AI body error for ${row.email}: ${err instanceof Error ? err.message : String(err)} — using template`,
+        );
       }
     }
 
