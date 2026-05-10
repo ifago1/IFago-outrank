@@ -97,11 +97,19 @@ const SECTIONS: Section[] = [
       { key: "REPLY_TO_EMAIL", label: "Reply-To email", type: "email", hint: "Optioneel — replies komen hier binnen." },
       {
         key: "EMAIL_SIGNATURE",
-        label: "Vaste handtekening",
+        label: "Vaste handtekening (plain text)",
         type: "textarea",
         placeholder:
           "Met vriendelijke groet,\nMax van iFago\nhallo@ifago.nl · +31 6 12345678\nwww.ifago.nl",
-        hint: "Multi-line. Wordt aan elke verstuurde mail toegevoegd zoals 'ie hier staat. AI mag dit niet wijzigen — bestaande sign-offs ('Groet, ...') worden vooraf weggeknipt zodat 'ie niet dubbel staat.",
+        hint: "Plain-text versie. Wordt gebruikt voor de text/plain MIME-part en als fallback wanneer geen HTML-versie is gezet. AI mag dit niet wijzigen — bestaande sign-offs ('Groet, ...') worden vooraf weggeknipt zodat 'ie niet dubbel staat.",
+      },
+      {
+        key: "EMAIL_SIGNATURE_HTML",
+        label: "Vaste handtekening (HTML)",
+        type: "textarea",
+        placeholder:
+          "<p>Met vriendelijke groet,<br><strong>Max van iFago</strong><br><a href=\"mailto:hallo@ifago.nl\">hallo@ifago.nl</a> &middot; +31 6 12345678<br><a href=\"https://www.ifago.nl\">www.ifago.nl</a></p>",
+        hint: "Optioneel. HTML-versie van de handtekening — wordt gebruikt voor de text/html MIME-part. Stel beide in voor multipart/alternative dat in elke mail-client mooi rendert. Mag inline-images via data:- of https:-URLs bevatten.",
       },
       { key: "PUBLIC_BASE_URL", label: "Public base URL", type: "url", placeholder: "https://outreach.jouw-domein.nl", hint: "Gebruikt in unsubscribe-links." },
     ],

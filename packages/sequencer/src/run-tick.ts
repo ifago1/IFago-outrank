@@ -115,6 +115,13 @@ export interface RunTickConfig {
    * Use to guarantee phone/website/disclaimer text is always present.
    */
   signature?: string;
+  /**
+   * HTML version of the fixed signature. When set, the email is sent
+   * as multipart/alternative — `text` part uses `signature`, `html`
+   * part wraps the body in a basic <p>-block layout and appends this
+   * HTML signature. Mail-clients pick the format they prefer.
+   */
+  signatureHtml?: string;
 }
 
 export interface SendOutcome {
@@ -371,6 +378,7 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
     let subject = render(subjectTemplate, vars, { onMissing: "blank" });
     let body = render(bodyTemplate, vars, { onMissing: "blank" });
     const signature = cfg.signature?.trim();
+    const signatureHtml = cfg.signatureHtml?.trim();
 
     // Per-lead AI personalization: when the campaign opts in AND a
     // bodyWriter is configured, regenerate subject + body for this
@@ -445,11 +453,18 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
       continue;
     }
 
+    // When an HTML signature is configured, build a multipart/alternative
+    // mail. The text part stays as-is; the html part wraps the body in
+    // simple <p>-blocks and appends the HTML signature instead of the
+    // text-stamped one — mail-clients pick whichever they prefer.
+    const html = signatureHtml ? buildHtmlBody(body, signatureHtml) : null;
+
     try {
       const result = await cfg.mailer.send({
         to: row.email,
         subject,
         text: body,
+        ...(html ? { html } : {}),
         from: cfg.fromEmail,
         fromName: cfg.fromName,
         ...(cfg.replyTo ? { replyTo: cfg.replyTo } : {}),
@@ -883,4 +898,57 @@ export function stripTrailingSignOff(body: string): string {
   const re =
     /\n\s*(met\s+(vriendelijke\s+)?groet[,.!]?|vriendelijke\s+groet[,.!]?|groet[,.!]?|mvg[,.!]?|hartelijke\s+groet[,.!]?)\s*(\n[^\n]{0,80}){0,3}\s*$/i;
   return body.replace(re, "").trimEnd();
+}
+
+/**
+ * Build a basic HTML email body from the text body + an HTML signature.
+ *
+ * The text body is split on the unsubscribe-footer ("--\nUitschrijven:")
+ * — content-paragraphs above it become <p>-blocks (HTML-escaped, with
+ * `\n` → <br>), the unsubscribe URL becomes a small footer link. The
+ * signature replaces any text-stamped sign-off and is inserted between
+ * content and footer.
+ *
+ * Mail clients render this when both `text` and `html` parts are
+ * present (multipart/alternative); senders that rewrite HTML (Gmail,
+ * Outlook) leave the simple <p>/<br> markup intact.
+ */
+export function buildHtmlBody(textBody: string, signatureHtml: string): string {
+  const footerSplit = textBody.split(/\n\s*--\s*\n/);
+  const contentText = footerSplit[0] ?? textBody;
+  const footerText = footerSplit.slice(1).join("\n--\n");
+
+  const paragraphs = contentText
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${escapeHtml(p).replace(/\n/g, "<br>")}</p>`)
+    .join("\n");
+
+  const footerHtml = footerText
+    ? `<p style="font-size:0.8em;color:#888;margin-top:1.5em">${escapeHtml(
+        footerText.trim(),
+      )
+        .replace(/\n/g, "<br>")
+        .replace(
+          /(https?:\/\/[^\s<]+)/g,
+          '<a href="$1" style="color:#888">$1</a>',
+        )}</p>`
+    : "";
+
+  return `<!doctype html>
+<html><body style="font-family:sans-serif;font-size:14px;line-height:1.5;color:#1a1a1a;max-width:600px">
+${paragraphs}
+${signatureHtml}
+${footerHtml}
+</body></html>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

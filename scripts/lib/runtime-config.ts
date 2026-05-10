@@ -114,6 +114,9 @@ export async function buildRuntimeConfig(
     ...(input.dryRun ? { dryRun: input.dryRun } : {}),
     ...(thompsonSampling ? { thompsonSampling: true } : {}),
     ...(cfg.EMAIL_SIGNATURE ? { signature: cfg.EMAIL_SIGNATURE } : {}),
+    ...(cfg.EMAIL_SIGNATURE_HTML
+      ? { signatureHtml: cfg.EMAIL_SIGNATURE_HTML }
+      : {}),
     personalizer,
     bodyWriter,
   };
