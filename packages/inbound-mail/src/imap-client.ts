@@ -47,6 +47,17 @@ export class ImapClient {
       logger: false,
       socketTimeout: this.config.timeoutMs,
     });
+    // ImapFlow emits 'error' on the EventEmitter for socket-level
+    // failures (TCP RST, idle timeout, TLS drop). Without a listener,
+    // Node treats it as unhandled and crashes the entire worker
+    // process — taking down all five BullMQ workers and aborting the
+    // mail-send tick mid-flight. We just log and swallow; the next
+    // poll opens a fresh client.
+    client.on("error", (err: Error) => {
+      console.warn(
+        `[inbox] imapflow socket error (suppressed): ${err.message}`,
+      );
+    });
     await client.connect();
     this.lock = await client.getMailboxLock(this.config.folder);
     this.client = client;
