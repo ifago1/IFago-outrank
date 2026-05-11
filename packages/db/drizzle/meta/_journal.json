@@ -71,6 +71,13 @@
       "when": 1746792000000,
       "tag": "0009_score_range_and_ai_body",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1747396800000,
+      "tag": "0010_unique_email_in_campaign_leads",
+      "breakpoints": true
     }
   ]
 }
