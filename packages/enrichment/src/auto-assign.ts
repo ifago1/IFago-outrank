@@ -57,9 +57,10 @@ export async function autoAssignContacts(
 
   if (rules.length === 0) return { assigned: 0, perCampaign: [] };
 
-  const eligibleContacts = await db
+  const rawEligible = await db
     .select({
       contactId: contacts.id,
+      email: contacts.email,
       doNotContact: contacts.doNotContact,
       isVerified: contacts.isVerified,
       businessId: businesses.id,
@@ -88,6 +89,19 @@ export async function autoAssignContacts(
         )`,
       ),
     );
+
+  // Intra-batch dedupe: dezelfde email kan in meerdere contact-rijen
+  // staan (één per business). De DB-trigger blokt elke 2e poging in een
+  // bulk-insert; daarom houden we hier per uniek email-adres alleen de
+  // eerste contact-row over.
+  const seenEmails = new Set<string>();
+  const eligibleContacts: typeof rawEligible = [];
+  for (const c of rawEligible) {
+    const k = c.email.toLowerCase();
+    if (seenEmails.has(k)) continue;
+    seenEmails.add(k);
+    eligibleContacts.push(c);
+  }
 
   if (eligibleContacts.length === 0) {
     return { assigned: 0, perCampaign: [] };
