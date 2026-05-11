@@ -92,12 +92,14 @@ async function main(): Promise<void> {
     .where(
       and(
         ...conditions,
-        // Strict: een contact mag in maximaal één campagne zitten —
-        // ongeacht status. Anders: handmatig uit oude campagne halen
-        // vóór toevoegen aan een nieuwe.
+        // Strict: één campagne per uniek email-adres. We filteren op
+        // email (niet contact_id) omdat dezelfde email vaak in
+        // meerdere contact-rijen voorkomt (één per business waar 'ie
+        // aan hangt). Eén mail per adres is altijd het juiste gedrag.
         sql`NOT EXISTS (
-          SELECT 1 FROM campaign_leads
-          WHERE campaign_leads.contact_id = ${contacts.id}
+          SELECT 1 FROM campaign_leads cl_existing
+          JOIN contacts ct_existing ON ct_existing.id = cl_existing.contact_id
+          WHERE LOWER(ct_existing.email) = LOWER(${contacts.email})
         )`,
       ),
     )

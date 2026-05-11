@@ -75,14 +75,16 @@ export async function autoAssignContacts(
         inArray(contacts.id, [...contactIds]),
         eq(contacts.doNotContact, false),
         eq(contacts.isVerified, true),
-        // Strict: a contact may exist in at most one campaign across
-        // the entire system — never auto-assign someone who is already
-        // in any campaign, regardless of that campaign's status. The
-        // operator can manually remove the lead from the old campaign
-        // first if they want to move it.
+        // Strict: een email-adres mag in maximaal één campagne zitten,
+        // ongeacht status van die campagne. We filteren op email (niet
+        // op contact_id) omdat dezelfde email vaak meerdere
+        // contact-rijen heeft als 'ie aan meerdere businesses hangt
+        // (bv. een keten met één centraal mailadres). Eén mail per
+        // adres is altijd het juiste gedrag.
         sql`NOT EXISTS (
           SELECT 1 FROM campaign_leads cl_existing
-          WHERE cl_existing.contact_id = ${contacts.id}
+          JOIN contacts ct_existing ON ct_existing.id = cl_existing.contact_id
+          WHERE LOWER(ct_existing.email) = LOWER(${contacts.email})
         )`,
       ),
     );
