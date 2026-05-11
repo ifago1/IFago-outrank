@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { effectiveDailyLimit, evaluateBounceCircuit } from "./health.js";
+import {
+  adjustForHealth,
+  effectiveDailyLimit,
+  evaluateBounceCircuit,
+} from "./health.js";
 
 describe("effectiveDailyLimit (warmup ramp)", () => {
   const NOW = new Date("2026-05-15T12:00:00Z");
@@ -122,5 +126,86 @@ describe("evaluateBounceCircuit", () => {
       minSent: 10,
     }); // 13.3% > 10%
     expect(decision2.open).toBe(true);
+  });
+});
+
+describe("adjustForHealth (smart warmup)", () => {
+  const base = { linearLimit: 20, fullLimit: 50, floor: 5 };
+
+  it("leaves the linear limit alone when there's not enough data", () => {
+    const d = adjustForHealth({
+      ...base,
+      recentSent: 10,
+      recentBounces: 0,
+      recentReplies: 0,
+    });
+    expect(d.limit).toBe(20);
+    expect(d.multiplier).toBe(1);
+  });
+
+  it("halves the limit when bounces > 5%", () => {
+    const d = adjustForHealth({
+      ...base,
+      recentSent: 100,
+      recentBounces: 8,
+      recentReplies: 0,
+    });
+    expect(d.multiplier).toBe(0.5);
+    expect(d.limit).toBe(10);
+  });
+
+  it("0.75x when bounces between 3-5%", () => {
+    const d = adjustForHealth({
+      ...base,
+      recentSent: 100,
+      recentBounces: 4,
+      recentReplies: 0,
+    });
+    expect(d.multiplier).toBe(0.75);
+    expect(d.limit).toBe(15);
+  });
+
+  it("1.25x when reply rate > 5%", () => {
+    const d = adjustForHealth({
+      ...base,
+      recentSent: 100,
+      recentBounces: 0,
+      recentReplies: 8,
+    });
+    expect(d.multiplier).toBe(1.25);
+    expect(d.limit).toBe(25);
+  });
+
+  it("compounds bounce penalty + reply boost", () => {
+    const d = adjustForHealth({
+      ...base,
+      recentSent: 100,
+      recentBounces: 4, // ×0.75
+      recentReplies: 8, // ×1.25
+    });
+    expect(d.multiplier).toBeCloseTo(0.9375);
+    expect(d.limit).toBe(19); // round(20 * 0.9375)
+  });
+
+  it("clamps below floor and above fullLimit", () => {
+    const lowFloor = adjustForHealth({
+      linearLimit: 6,
+      fullLimit: 50,
+      floor: 5,
+      recentSent: 100,
+      recentBounces: 8, // ×0.5 → 3, but floor is 5
+      recentReplies: 0,
+    });
+    expect(lowFloor.limit).toBe(5);
+
+    const highCap = adjustForHealth({
+      linearLimit: 50,
+      fullLimit: 50,
+      floor: 5,
+      recentSent: 100,
+      recentBounces: 0,
+      recentReplies: 8, // ×1.25 → 62.5, clamped to fullLimit
+    });
+    expect(highCap.limit).toBe(50);
   });
 });

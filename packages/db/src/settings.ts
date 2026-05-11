@@ -25,12 +25,15 @@ export const SETTING_KEYS = [
   "FROM_EMAIL",
   "FROM_NAME",
   "REPLY_TO_EMAIL",
+  "EMAIL_SIGNATURE",
+  "EMAIL_SIGNATURE_HTML",
   "PUBLIC_BASE_URL",
   // External APIs
   "GOOGLE_PLACES_API_KEY",
   "GOOGLE_GEOCODING_API_KEY",
   "ANTHROPIC_API_KEY",
   "AI_MODEL",
+  "AI_BODY_MODEL",
   "HUNTER_API_KEY",
   "PSI_API_KEY",
   // Sending hygiene
@@ -44,6 +47,20 @@ export const SETTING_KEYS = [
   "BOUNCE_WINDOW",
   "BOUNCE_MIN_SENT",
   "TICK_BATCH_SIZE",
+  "STALE_AFTER_DAYS",
+  // Automation toggles
+  "VARIANT_SELECTION",
+  "SMART_WARMUP",
+  "SMART_WARMUP_WINDOW",
+  "SMART_WARMUP_MIN_SENT",
+  "DIGEST_EMAIL",
+  // IMAP — reply / bounce inbox-poller
+  "IMAP_HOST",
+  "IMAP_PORT",
+  "IMAP_USER",
+  "IMAP_PASS",
+  "IMAP_SECURE",
+  "IMAP_FOLDER",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -58,6 +75,7 @@ export const SECRET_KEYS = new Set<SettingKey>([
   "ANTHROPIC_API_KEY",
   "HUNTER_API_KEY",
   "PSI_API_KEY",
+  "IMAP_PASS",
 ]);
 
 export function isValidSettingKey(key: string): key is SettingKey {

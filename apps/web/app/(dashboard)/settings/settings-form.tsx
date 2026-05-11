@@ -8,7 +8,7 @@ import { SECRET_PLACEHOLDER, type SaveSettingsResult } from "./types";
 interface FieldDef {
   key: SettingKey;
   label: string;
-  type: "text" | "email" | "url" | "number" | "password" | "select";
+  type: "text" | "email" | "url" | "number" | "password" | "select" | "textarea";
   placeholder?: string;
   options?: { value: string; label: string }[];
   hint?: string;
@@ -94,8 +94,11 @@ function FieldRow({
     name: field.key,
     id: field.key,
     value: v,
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-      setV(e.target.value),
+    onChange: (
+      e: React.ChangeEvent<
+        HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      >,
+    ) => setV(e.target.value),
     placeholder: field.placeholder,
     style: inputStyle,
   };
@@ -115,6 +118,20 @@ function FieldRow({
             </option>
           ))}
         </select>
+      ) : field.type === "textarea" ? (
+        <textarea
+          {...inputProps}
+          rows={6}
+          spellCheck={false}
+          style={{
+            ...inputStyle,
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            fontSize: "0.85rem",
+            minHeight: "8rem",
+            resize: "vertical",
+          }}
+        />
       ) : (
         <div style={{ display: "flex", gap: "0.4rem" }}>
           <input

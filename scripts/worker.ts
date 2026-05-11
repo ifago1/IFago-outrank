@@ -15,11 +15,15 @@ import { closeDb, getDb, getSetting } from "@outreach/db";
 import {
   closeQueues,
   closeRedis,
+  createDigestWorker,
   createDiscoverWorker,
+  createEnrichWorker,
+  createInboxWorker,
   createTickWorker,
 } from "@outreach/queue";
 import { loadConfigOrExit } from "@outreach/config";
 import { buildRuntimeConfig } from "./lib/runtime-config.js";
+import { buildImapConfig } from "./lib/imap-config.js";
 
 const cfg = loadConfigOrExit("worker");
 
@@ -50,16 +54,69 @@ const discoverWorker = createDiscoverWorker({
       (await getSetting(db, "GOOGLE_GEOCODING_API_KEY")) ??
       process.env["GOOGLE_GEOCODING_API_KEY"] ??
       placesApiKey;
+    const hunterApiKey =
+      (await getSetting(db, "HUNTER_API_KEY")) ??
+      process.env["HUNTER_API_KEY"];
     return {
       db,
       googleApiKey: placesApiKey,
       ...(geocodingApiKey ? { geocodingApiKey } : {}),
+      ...(hunterApiKey ? { hunterApiKey } : {}),
+    };
+  },
+});
+
+const enrichWorker = createEnrichWorker({
+  buildContext: async () => {
+    const db = getDb();
+    const hunterApiKey =
+      (await getSetting(db, "HUNTER_API_KEY")) ??
+      process.env["HUNTER_API_KEY"];
+    return {
+      db,
+      ...(hunterApiKey ? { hunterApiKey } : {}),
+    };
+  },
+});
+
+const digestWorker = createDigestWorker({
+  buildContext: async () => {
+    const db = getDb();
+    const runtimeCfg = await buildRuntimeConfig({
+      db,
+      unsubscribeSecret: cfg.UNSUBSCRIBE_SECRET,
+    });
+    const notifyEmail =
+      (await getSetting(db, "DIGEST_EMAIL")) ??
+      process.env["DIGEST_EMAIL"];
+    return {
+      db,
+      mailer: runtimeCfg.mailer,
+      fromEmail: runtimeCfg.fromEmail,
+      fromName: runtimeCfg.fromName,
+      ...(notifyEmail ? { notifyEmail } : {}),
+    };
+  },
+});
+
+const inboxWorker = createInboxWorker({
+  buildContext: async () => {
+    const db = getDb();
+    const imap = await buildImapConfig(db);
+    if (!imap) return null;
+    const anthropicApiKey =
+      (await getSetting(db, "ANTHROPIC_API_KEY")) ??
+      process.env["ANTHROPIC_API_KEY"];
+    return {
+      db,
+      imap,
+      ...(anthropicApiKey ? { anthropicApiKey } : {}),
     };
   },
 });
 
 console.log(
-  "[worker] tick + discover workers started — waiting for jobs",
+  "[worker] tick + discover + enrich + inbox + digest workers started — waiting for jobs",
 );
 
 async function shutdown(signal: string): Promise<void> {
@@ -67,6 +124,9 @@ async function shutdown(signal: string): Promise<void> {
   try {
     await tickWorker.close();
     await discoverWorker.close();
+    await enrichWorker.close();
+    await inboxWorker.close();
+    await digestWorker.close();
     await closeQueues();
     await closeRedis();
     await closeDb();

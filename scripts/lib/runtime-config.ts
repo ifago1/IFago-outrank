@@ -7,6 +7,7 @@
 import { type Db } from "@outreach/db";
 import { createMailer, type Mailer } from "@outreach/mailer";
 import {
+  AnthropicBodyWriter,
   AnthropicPersonalizer,
 } from "@outreach/ai-personalization";
 import {
@@ -40,6 +41,15 @@ export async function buildRuntimeConfig(
         ...(cfg.AI_MODEL ? { model: cfg.AI_MODEL } : {}),
       })
     : undefined;
+  // Body writer reuses the same Anthropic key but defaults to a cheaper
+  // Haiku model (per-send call, runs many times per day). Override via
+  // AI_BODY_MODEL.
+  const bodyWriter = cfg.ANTHROPIC_API_KEY
+    ? new AnthropicBodyWriter({
+        apiKey: cfg.ANTHROPIC_API_KEY,
+        ...(cfg.AI_BODY_MODEL ? { model: cfg.AI_BODY_MODEL } : {}),
+      })
+    : undefined;
 
   const window = {
     startHour: cfg.SEND_WINDOW_START
@@ -70,6 +80,21 @@ export async function buildRuntimeConfig(
       }
     : undefined;
 
+  const thompsonSampling =
+    cfg.VARIANT_SELECTION === "thompson" || cfg.THOMPSON_SAMPLING === "true";
+
+  const smartWarmup =
+    cfg.SMART_WARMUP === "true"
+      ? {
+          ...(cfg.SMART_WARMUP_WINDOW
+            ? { windowSize: Number(cfg.SMART_WARMUP_WINDOW) }
+            : {}),
+          ...(cfg.SMART_WARMUP_MIN_SENT
+            ? { minSent: Number(cfg.SMART_WARMUP_MIN_SENT) }
+            : {}),
+        }
+      : undefined;
+
   return {
     db: input.db,
     mailer,
@@ -85,8 +110,18 @@ export async function buildRuntimeConfig(
     batchSize: input.batchSize ?? (cfg.TICK_BATCH_SIZE ? Number(cfg.TICK_BATCH_SIZE) : 50),
     ...(warmup ? { warmup } : {}),
     ...(bounceCircuit ? { bounceCircuit } : {}),
+    ...(smartWarmup ? { smartWarmup } : {}),
     ...(input.dryRun ? { dryRun: input.dryRun } : {}),
+    ...(thompsonSampling ? { thompsonSampling: true } : {}),
+    ...(cfg.EMAIL_SIGNATURE ? { signature: cfg.EMAIL_SIGNATURE } : {}),
+    ...(cfg.EMAIL_SIGNATURE_HTML
+      ? { signatureHtml: cfg.EMAIL_SIGNATURE_HTML }
+      : {}),
+    ...(cfg.STALE_AFTER_DAYS
+      ? { staleAfterDays: Number(cfg.STALE_AFTER_DAYS) }
+      : {}),
     personalizer,
+    bodyWriter,
   };
 }
 

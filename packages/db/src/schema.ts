@@ -29,6 +29,9 @@ export const businesses = pgTable(
     personalObservationSource: text("personal_observation_source"),
     auditDetail: jsonb("audit_detail"),
     auditedAt: timestamp("audited_at", { withTimezone: true }),
+    enrichmentAttemptedAt: timestamp("enrichment_attempted_at", {
+      withTimezone: true,
+    }),
     discoveredAt: timestamp("discovered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -68,6 +71,34 @@ export const campaigns = pgTable("campaigns", {
   name: text("name").notNull(),
   niche: text("niche"),
   status: text("status").notNull().default("draft"),
+  /**
+   * Auto-assign rules: when enabled, freshly-enriched contacts whose
+   * business matches niche / city / website-quality are automatically
+   * appended as campaign-leads. NULL fields act as wildcards.
+   */
+  autoAssignEnabled: boolean("auto_assign_enabled").notNull().default(false),
+  autoAssignNiche: text("auto_assign_niche"),
+  autoAssignCity: text("auto_assign_city"),
+  autoAssignWebsiteQuality: text("auto_assign_website_quality"),
+  /**
+   * Numeric score range over `businesses.audit_detail->>'htmlScore'`
+   * (0-100). NULL = no lower / upper bound. Bucket + range can be
+   * combined: e.g. bucket="outdated" AND maxScore=40 narrows to the
+   * worst end of outdated.
+   */
+  autoAssignMinScore: integer("auto_assign_min_score"),
+  autoAssignMaxScore: integer("auto_assign_max_score"),
+  /** Cap on how many leads this campaign may auto-collect. NULL = unbounded. */
+  autoAssignMaxLeads: integer("auto_assign_max_leads"),
+  /**
+   * When true, every send for this campaign gets a fresh AI-written
+   * subject + body — the step's templates are passed to the model as
+   * tone reference, the actual mail is regenerated per (lead, step).
+   * Falls back to the templated render if the AI call fails.
+   */
+  aiPersonalizeFullBody: boolean("ai_personalize_full_body")
+    .notNull()
+    .default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -113,6 +144,12 @@ export const campaignLeads = pgTable(
     lastEventAt: timestamp("last_event_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** AI-classified reply category: positive / question / negative / oof / referral / unknown. */
+    replyClassification: text("reply_classification"),
+    /** Short AI-generated summary of the reply for at-a-glance triage. */
+    replySummary: text("reply_summary"),
+    /** Raw plaintext body of the reply, capped to ~10kB by the worker. */
+    replyText: text("reply_text"),
   },
   (table) => ({
     campaignContactUnique: uniqueIndex(

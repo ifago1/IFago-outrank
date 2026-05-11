@@ -24,6 +24,7 @@ export interface CreateDiscoverWorkerOptions {
     db: Db;
     googleApiKey: string | undefined;
     geocodingApiKey?: string | undefined;
+    hunterApiKey?: string | undefined;
   }>;
   onPollComplete?: (results: SavedSearchRunResult[]) => void | Promise<void>;
   concurrency?: number;
@@ -76,7 +77,9 @@ export function createDiscoverWorker(
           geocodingApiKey: ctx.geocodingApiKey ?? ctx.googleApiKey,
         };
         for (const s of due) {
-          const r = await runSavedSearch(ctx.db, keys, s);
+          const r = await runSavedSearch(ctx.db, keys, s, {
+            ...(ctx.hunterApiKey ? { hunterApiKey: ctx.hunterApiKey } : {}),
+          });
           results.push(r);
           if (r.ok) {
             console.log(

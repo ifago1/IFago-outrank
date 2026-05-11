@@ -131,12 +131,19 @@ export async function runSearchNow(id: string): Promise<DiscoverActionResult> {
     (await getSetting(db, "PSI_API_KEY")) ??
     process.env["PSI_API_KEY"] ??
     undefined;
+  const hunterApiKey =
+    (await getSetting(db, "HUNTER_API_KEY")) ??
+    process.env["HUNTER_API_KEY"] ??
+    undefined;
 
   const result = await runSavedSearch(
     db,
     { placesApiKey, geocodingApiKey },
     row,
-    psiApiKey ? { psiApiKey } : undefined,
+    {
+      ...(psiApiKey ? { auditOptions: { psiApiKey } } : {}),
+      ...(hunterApiKey ? { hunterApiKey } : {}),
+    },
   );
   revalidatePath("/discover");
   revalidatePath("/leads");

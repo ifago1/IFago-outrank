@@ -91,13 +91,14 @@ pnpm dev                         # dashboard op http://localhost:3000
 ## End-to-end voorbeeldcyclus
 
 ```bash
-# 1. Lead Discovery — Google Places
+# 1. Lead Discovery — Google Places (incluis auto-enrichment van nieuwe leads)
 pnpm discover --niche="kapper" --city="Utrecht"
 
 # 2. Website-quality scoring — audit homepages, score `outdated|decent|good`
 pnpm score-websites --limit=20
 
-# 3. Enrichment — vind emailadressen via website + Hunter (optioneel)
+# 3. Enrichment voor bestaande leads — backfill een batch handmatig
+#    (loopt sinds v0.2 ook automatisch elke 6 uur via de BullMQ enrich-poll)
 pnpm enrich --limit=20
 
 # 4. Campagne aanmaken (default 3-step sequence uit het projectplan)
@@ -115,14 +116,31 @@ pnpm send-tick                   # echt sturen
 
 | Script | Wat het doet |
 |---|---|
-| `pnpm discover` | Google Places Text Search → upsert in `businesses` op `place_id` |
+| `pnpm discover` | Google Places Text Search → upsert in `businesses` op `place_id` + auto-enrichment van nieuwe leads (website-scrape, optioneel Hunter) |
 | `pnpm score-websites` | Audit homepages (HTTPS, viewport, table-layout, jQuery 1.x, Flash, X-UA-Compatible, doctype, copyright-year) → bucket `outdated|decent|good` in `businesses.website_quality` |
-| `pnpm enrich` | Voor businesses zonder contact: scrape website (`/contact`, `/over-ons`, etc.) + optioneel Hunter Domain Search → MX-valideren → upsert in `contacts` |
+| `pnpm enrich` | Backfill voor businesses zonder contact óf waarvan de laatste poging > 90 dagen oud is: scrape website (`/contact`, `/over-ons`, etc.) + optioneel Hunter → MX-valideren → upsert in `contacts`. Stempelt `enrichment_attempted_at` zodat herhaalde runs leads zonder mail niet opnieuw scrapen. Loopt ook automatisch via de `outreach-enrich` BullMQ poll (default elke 6u). |
+| `pnpm poll-inbox` | Eén-malig de IMAP-mailbox scannen op replies + bounces, matchen aan campaign-leads en `replied_at` / `bounced` zetten. Hard bounces gaan ook automatisch in `unsubscribes` + `do_not_contact`. Loopt ook automatisch via de `outreach-inbox` BullMQ poll (default elke 10 min). Vereist `IMAP_*` env-vars (of fallback op `SMTP_*` voor providers waar credentials gedeeld zijn — bv. mailprotect.be, Combell, Fastmail). |
 | `pnpm seed-campaign` | Maakt een campagne + 3-step sequence aan (idempotent op naam) |
 | `pnpm assign-leads` | Filtert contacten en maakt `campaign_leads` aan |
 | `pnpm send-tick` | 1× sequencer-tick: pak due leads, evalueer 5 guards, render template, verstuur via Postmark, log in `emails_sent` |
 
 Elke CLI ondersteunt `--help` en (waar zinvol) `--dry-run`.
+
+## Automation features (auto-pilot mode)
+
+Naast de basics draaien er een aantal optionele "auto-pilot" features:
+
+| Feature | Trigger | Wat het doet |
+|---|---|---|
+| **Auto-enrichment** | nieuwe lead in `runDiscovery` + 6u backfill-poll | Website-scrape voor contactgegevens, optioneel Hunter |
+| **Auto-assign leads → campagnes** | nieuwe contact via enrichment | Matcht op `auto_assign_*` kolommen op campagnes (niche / city / website_quality) en plaatst lead in eerste matchende actieve campagne |
+| **IMAP reply/bounce detectie** | elke 10 min | Scant FROM_EMAIL mailbox, matched op `In-Reply-To`/`References`, zet `replied_at`/`bounced` |
+| **AI reply-triage** | wanneer `ANTHROPIC_API_KEY` gezet is | Classifeert elke reply als positive / question / negative / out_of_office / referral / unknown — dashboard `/inbox` toont kleurpills + samenvatting |
+| **Thompson-sampling A/B** | wanneer `VARIANT_SELECTION=thompson` | Kiest variant op basis van historische reply-rate i.p.v. statische weights, met cold-start exploration |
+| **Smart warmup** | wanneer `SMART_WARMUP=true` (en `WARMUP_DAYS`/`FLOOR` gezet) | Dailylimit groeit linear, maar wordt × 0.5 bij bounce > 5%, × 0.75 bij bounce > 3%, × 1.25 bij reply > 5% |
+| **Daily digest mail** | cron (default 08:00 Europe/Amsterdam) | Stuurt KPIs van afgelopen 24u naar `DIGEST_EMAIL` (of `FROM_EMAIL`) |
+
+Configureer via `.env` of de Settings-tab — geen restart nodig, settings worden per tick opnieuw gelezen.
 
 ## Pre-send guards (volgorde uit het plan)
 

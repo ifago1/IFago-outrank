@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export interface FieldDef {
   key: SettingKey;
   label: string;
-  type: "text" | "email" | "url" | "number" | "password" | "select";
+  type: "text" | "email" | "url" | "number" | "password" | "select" | "textarea";
   placeholder?: string;
   options?: { value: string; label: string }[];
   hint?: string;
@@ -95,6 +95,22 @@ const SECTIONS: Section[] = [
       { key: "FROM_EMAIL", label: "From email", type: "email", placeholder: "noreply@jouw-domein.nl", hint: "Moet een verified sender zijn bij je provider." },
       { key: "FROM_NAME", label: "From naam", type: "text" },
       { key: "REPLY_TO_EMAIL", label: "Reply-To email", type: "email", hint: "Optioneel — replies komen hier binnen." },
+      {
+        key: "EMAIL_SIGNATURE",
+        label: "Vaste handtekening (plain text)",
+        type: "textarea",
+        placeholder:
+          "Met vriendelijke groet,\nMax van iFago\nhallo@ifago.nl · +31 6 12345678\nwww.ifago.nl",
+        hint: "Plain-text versie. Wordt gebruikt voor de text/plain MIME-part en als fallback wanneer geen HTML-versie is gezet. AI mag dit niet wijzigen — bestaande sign-offs ('Groet, ...') worden vooraf weggeknipt zodat 'ie niet dubbel staat.",
+      },
+      {
+        key: "EMAIL_SIGNATURE_HTML",
+        label: "Vaste handtekening (HTML)",
+        type: "textarea",
+        placeholder:
+          "<p>Met vriendelijke groet,<br><strong>Max van iFago</strong><br><a href=\"mailto:hallo@ifago.nl\">hallo@ifago.nl</a> &middot; +31 6 12345678<br><a href=\"https://www.ifago.nl\">www.ifago.nl</a></p>",
+        hint: "Optioneel. HTML-versie van de handtekening — wordt gebruikt voor de text/html MIME-part. Stel beide in voor multipart/alternative dat in elke mail-client mooi rendert. Mag inline-images via data:- of https:-URLs bevatten.",
+      },
       { key: "PUBLIC_BASE_URL", label: "Public base URL", type: "url", placeholder: "https://outreach.jouw-domein.nl", hint: "Gebruikt in unsubscribe-links." },
     ],
   },
@@ -150,9 +166,89 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    title: "Automation",
+    description:
+      "Schakel auto-pilot features in: A/B variant-keuze op basis van historische reply-rate, dynamische warmup op basis van inbox health, en de daily KPI-digest mail.",
+    fields: [
+      {
+        key: "VARIANT_SELECTION",
+        label: "A/B variant strategie",
+        type: "select",
+        options: [
+          { value: "weighted", label: "Weighted (statisch — gebruikt sequence_step_variants.weight)" },
+          { value: "thompson", label: "Thompson sampling (leert van historische reply-rate)" },
+        ],
+        hint: "Default 'weighted'. 'thompson' is cold-start safe via een Beta(1,1) prior — nieuwe variants krijgen exploratie totdat ze data hebben.",
+      },
+      {
+        key: "SMART_WARMUP",
+        label: "Smart warmup",
+        type: "select",
+        options: [
+          { value: "false", label: "Uit (alleen lineaire ramp)" },
+          { value: "true", label: "Aan (×0.5 bij bounce>5%, ×0.75 bij bounce>3%, ×1.25 bij reply>5%)" },
+        ],
+        hint: "Vereist WARMUP_DAYS + WARMUP_FLOOR. Past de daglimiet on-the-fly aan op basis van de recente N sends.",
+      },
+      {
+        key: "SMART_WARMUP_WINDOW",
+        label: "Smart-warmup window (laatste N sends)",
+        type: "number",
+        placeholder: "100",
+      },
+      {
+        key: "SMART_WARMUP_MIN_SENT",
+        label: "Smart-warmup minimum (negeer onder N)",
+        type: "number",
+        placeholder: "20",
+      },
+      {
+        key: "DIGEST_EMAIL",
+        label: "Digest-mail ontvanger",
+        type: "email",
+        placeholder: "jij@agency.nl",
+        hint: "Standaard FROM_EMAIL. De daily digest gaat hier naartoe (08:00 NL via cron).",
+      },
+    ],
+  },
+  {
+    title: "IMAP — reply / bounce detectie",
+    description:
+      "Wanneer je via SMTP verstuurt (mailprotect.be / Combell / Fastmail / Gmail), draait een poll-worker elke 10 min op je INBOX om replies en bounces aan campaign-leads te koppelen. Niet nodig met Postmark (die heeft webhooks). Velden mogen leeg blijven — IMAP_USER/PASS vallen automatisch terug op SMTP_USER/PASS.",
+    fields: [
+      {
+        key: "IMAP_HOST",
+        label: "IMAP host",
+        type: "text",
+        placeholder: "imap.mailprotect.be",
+        hint: "Voor mailprotect.be: 'imap.mailprotect.be'. Gmail: 'imap.gmail.com'. Fastmail: 'imap.fastmail.com'.",
+      },
+      { key: "IMAP_PORT", label: "Port", type: "number", placeholder: "993" },
+      {
+        key: "IMAP_SECURE",
+        label: "TLS-mode",
+        type: "select",
+        options: [
+          { value: "true", label: "Implicit TLS (port 993)" },
+          { value: "false", label: "STARTTLS (port 143)" },
+        ],
+      },
+      { key: "IMAP_USER", label: "Username", type: "text", hint: "Optioneel — laat leeg om SMTP_USER te hergebruiken." },
+      { key: "IMAP_PASS", label: "Password", type: "password", hint: "Optioneel — laat leeg om SMTP_PASS te hergebruiken." },
+      { key: "IMAP_FOLDER", label: "Folder", type: "text", placeholder: "INBOX" },
+    ],
+  },
+  {
     title: "Worker",
     fields: [
       { key: "TICK_BATCH_SIZE", label: "Leads per tick", type: "number", placeholder: "50" },
+      {
+        key: "STALE_AFTER_DAYS",
+        label: "Stale-leads na (dagen)",
+        type: "number",
+        placeholder: "30",
+        hint: "Leads zonder activiteit (geen verzending, geen status-wijziging) langer dan dit aantal dagen worden automatisch op status='completed' gezet. Zo blijven ze niet hangen in queued/sent. Leeg of 0 = uit.",
+      },
     ],
   },
 ];

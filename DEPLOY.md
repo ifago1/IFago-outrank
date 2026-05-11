@@ -92,7 +92,9 @@ journalctl -u caddy -n 50
 Open `https://outreach.jouw-agency.nl/leads` in je browser — login met
 de credentials die de installer aan het eind toonde.
 
-### 5. Webhook configureren (alleen voor Postmark)
+### 5. Reply- en bounce-detectie configureren
+
+#### Optie A — Postmark (webhook)
 
 In de Postmark dashboard:
 - **Servers → jouw server → Inbound** → set Webhook URL naar
@@ -101,14 +103,51 @@ In de Postmark dashboard:
 - **Bounce / SpamComplaint webhook** → zelfde URL (de handler herkent
   beide branches)
 
+#### Optie B — generieke SMTP-provider (IMAP-poll)
+
+Voor providers zonder webhooks (mailprotect.be, Combell, Fastmail,
+Gmail) draait een IMAP-poll-worker die elke 10 min de mailbox van
+`FROM_EMAIL` scant op replies en bounce-DSNs, matched ze aan
+campaign-leads, en zet `replied_at` / `bounced=true`. Hard bounces
+landen automatisch in `unsubscribes` + `do_not_contact`.
+
+Vul in `/opt/outreach/.env` (of via Settings tab):
+
+```
+IMAP_HOST=imap-auth.mailprotect.be      # of imap.gmail.com / imap.fastmail.com etc
+IMAP_PORT=993
+IMAP_SECURE=true
+# IMAP_USER + IMAP_PASS vallen terug op SMTP_USER / SMTP_PASS — voor
+# mailprotect.be hoef je ze niet apart te zetten.
+```
+
+Daarna `sudo systemctl restart outreach-worker outreach-scheduler` en
+het loopt vanzelf. Verifieer via:
+
+```bash
+sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm poll-inbox --dry-run'
+```
+
+Verwacht: een regel per UNSEEN mail met classificatie (`reply` /
+`bounce` / `auto-reply` / `unknown`). Lege uitkomst = mailbox is leeg.
+
 ### Eerste run: leads ophalen + mails sturen
 
 ```bash
 sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm discover --niche=kapper --city=Utrecht --radius=5000'
 sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm score-websites'
-sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm enrich --concurrency=10'
 sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm seed-campaign --name="Kappers Utrecht Q2" --niche=kapper --activate'
 sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm assign-leads --campaign="Kappers Utrecht Q2" --no-website --limit=20'
+```
+
+`pnpm discover` doet sinds v0.2 ook automatisch de website-scrape voor
+nieuwe leads — je hoeft niet meer apart `pnpm enrich` te draaien. Voor
+**bestaande** leads die nog geen contact-info hebben loopt elke 6 uur
+de `outreach-enrich` poll en handelt die door de backlog. Wil je 'm
+direct triggeren? Dan nog steeds:
+
+```bash
+sudo -u outreach -- bash -c 'cd /opt/outreach && pnpm enrich --concurrency=10 --limit=200'
 ```
 
 De BullMQ scheduler triggert daarna elke 5 min een tick — niets meer

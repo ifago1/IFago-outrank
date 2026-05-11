@@ -5,6 +5,7 @@ const NAV = [
   { href: "/leads", label: "Leads" },
   { href: "/discover", label: "Discover" },
   { href: "/campaigns", label: "Campaigns" },
+  { href: "/sent", label: "Sent" },
   { href: "/inbox", label: "Inbox" },
   { href: "/stats", label: "Stats" },
   { href: "/settings", label: "Settings" },

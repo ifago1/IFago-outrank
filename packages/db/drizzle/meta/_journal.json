@@ -50,6 +50,34 @@
       "when": 1715040000000,
       "tag": "0006_audit_detail",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1746360000000,
+      "tag": "0007_enrichment_attempt",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1746446400000,
+      "tag": "0008_automation_extensions",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1746792000000,
+      "tag": "0009_score_range_and_ai_body",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1747396800000,
+      "tag": "0010_unique_email_in_campaign_leads",
+      "breakpoints": true
     }
   ]
 }

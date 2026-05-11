@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { businesses, type Db } from "@outreach/db";
+import { enrichAndPersist } from "@outreach/enrichment";
 import { Geocoder } from "@outreach/geocoding";
 import { PlacesClient } from "@outreach/places";
 import {
@@ -22,6 +23,19 @@ export interface DiscoveryInput {
    */
   scoreWebsites?: boolean;
   /**
+   * Auto-enrich newly-discovered businesses by scraping their website
+   * for emails. Default true. Disable when you only want to seed leads
+   * without contact-info (rare). Failures per-business are swallowed —
+   * the recurring `outreach-enrich` poll will retry them later.
+   */
+  enrichWebsites?: boolean;
+  /**
+   * Optional Hunter API key. When set, enrichment also queries Hunter
+   * domain-search alongside the website scrape. Falls back to
+   * scrape-only when omitted.
+   */
+  hunterApiKey?: string;
+  /**
    * Aanvullende audit-keys. Als gezet, worden Tier 2 (PageSpeed
    * Insights) en/of Tier 3 (AI design-audit) ook tijdens discovery
    * uitgevoerd. Beide zijn optioneel — ontbrekende key = die tier
@@ -36,6 +50,10 @@ export interface DiscoveryResult {
   upserted: number;
   geocoded: { lat: number; lng: number; radius: number } | null;
   scored: number;
+  /** Number of newly-discovered businesses for which enrichment ran. */
+  enriched: number;
+  /** Total contact rows (emails) inserted by inline enrichment. */
+  enrichedContacts: number;
 }
 
 /**
@@ -103,7 +121,15 @@ export async function runDiscovery(
   });
 
   if (results.length === 0) {
-    return { query, found: 0, upserted: 0, geocoded, scored: 0 };
+    return {
+      query,
+      found: 0,
+      upserted: 0,
+      geocoded,
+      scored: 0,
+      enriched: 0,
+      enrichedContacts: 0,
+    };
   }
 
   const rows = results.map((r) => ({
@@ -143,8 +169,10 @@ export async function runDiscovery(
     })
     .returning({
       id: businesses.id,
+      name: businesses.name,
       websiteUrl: businesses.websiteUrl,
       websiteQuality: businesses.websiteQuality,
+      enrichmentAttemptedAt: businesses.enrichmentAttemptedAt,
     });
 
   const shouldScore = input.scoreWebsites !== false;
@@ -161,12 +189,47 @@ export async function runDiscovery(
     scored = await scoreInBatches(db, toScore, 5, input.auditOptions ?? {});
   }
 
+  // Auto-enrichment: scrape the website of any new lead that we haven't
+  // tried yet. Already-enriched rows (re-discovered placeId) are
+  // skipped — the recurring `outreach-enrich` poll handles refreshes.
+  let enriched = 0;
+  let enrichedContacts = 0;
+  const shouldEnrich = input.enrichWebsites !== false;
+  const toEnrich = shouldEnrich
+    ? inserted.filter(
+        (b) => !!b.websiteUrl && b.enrichmentAttemptedAt === null,
+      )
+    : [];
+  if (toEnrich.length > 0) {
+    try {
+      const persisted = await enrichAndPersist(
+        db,
+        toEnrich.map((b) => ({
+          id: b.id,
+          name: b.name,
+          websiteUrl: b.websiteUrl,
+        })),
+        {
+          concurrency: 5,
+          ...(input.hunterApiKey ? { hunterApiKey: input.hunterApiKey } : {}),
+        },
+      );
+      enriched = persisted.length;
+      enrichedContacts = persisted.reduce((sum, p) => sum + p.inserted, 0);
+    } catch {
+      // Discovery must not fail when enrichment hits an unexpected
+      // error — the recurring poll will retry these rows later.
+    }
+  }
+
   return {
     query,
     found: results.length,
     upserted: inserted.length,
     geocoded,
     scored,
+    enriched,
+    enrichedContacts,
   };
 }
 
