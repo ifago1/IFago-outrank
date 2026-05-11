@@ -92,10 +92,12 @@ async function main(): Promise<void> {
     .where(
       and(
         ...conditions,
+        // Strict: een contact mag in maximaal één campagne zitten —
+        // ongeacht status. Anders: handmatig uit oude campagne halen
+        // vóór toevoegen aan een nieuwe.
         sql`NOT EXISTS (
           SELECT 1 FROM campaign_leads
           WHERE campaign_leads.contact_id = ${contacts.id}
-            AND campaign_leads.campaign_id = ${campaign.id}
         )`,
       ),
     )
