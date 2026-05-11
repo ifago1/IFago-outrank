@@ -27,6 +27,7 @@ import {
   evaluateBounceCircuit,
 } from "./health.js";
 import { buildPersonalObservation } from "./personalization.js";
+import { deactivateStaleLeads } from "./stale-cleanup.js";
 import { pickWeighted } from "./variant-selector.js";
 import { pickThompson, type ThompsonItem } from "./thompson-sampler.js";
 
@@ -116,6 +117,14 @@ export interface RunTickConfig {
    */
   signature?: string;
   /**
+   * Auto-deactivate stale leads at the start of each tick. A lead
+   * counts as stale when its `last_event_at` is older than
+   * `staleAfterDays` days AND it is still in `queued` or `sent` (so
+   * never replied or bounced). Stale leads get status='completed' so
+   * the sequencer skips them. NULL or 0 disables the cleanup.
+   */
+  staleAfterDays?: number;
+  /**
    * HTML version of the fixed signature. When set, the email is sent
    * as multipart/alternative — `text` part uses `signature`, `html`
    * part wraps the body in a basic <p>-block layout and appends this
@@ -175,6 +184,19 @@ interface DueRow {
 export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
   const now = cfg.now ?? new Date();
   const batchSize = cfg.batchSize ?? 50;
+
+  // Tick-level cleanup: deactivate stale leads (no activity in
+  // `staleAfterDays` days). Runs first so they don't show up in the
+  // due-leads query.
+  if (cfg.staleAfterDays && cfg.staleAfterDays > 0) {
+    const r = await deactivateStaleLeads(cfg.db, cfg.staleAfterDays, now);
+    if (r.deactivated.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[tick] auto-deactivated ${r.deactivated.length} stale lead(s) (>${cfg.staleAfterDays}d inactive)`,
+      );
+    }
+  }
 
   // Tick-level guard: bounce-rate circuit breaker.
   if (cfg.bounceCircuit) {

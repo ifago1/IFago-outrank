@@ -117,6 +117,9 @@ export async function buildRuntimeConfig(
     ...(cfg.EMAIL_SIGNATURE_HTML
       ? { signatureHtml: cfg.EMAIL_SIGNATURE_HTML }
       : {}),
+    ...(cfg.STALE_AFTER_DAYS
+      ? { staleAfterDays: Number(cfg.STALE_AFTER_DAYS) }
+      : {}),
     personalizer,
     bodyWriter,
   };

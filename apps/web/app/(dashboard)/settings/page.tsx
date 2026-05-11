@@ -242,6 +242,13 @@ const SECTIONS: Section[] = [
     title: "Worker",
     fields: [
       { key: "TICK_BATCH_SIZE", label: "Leads per tick", type: "number", placeholder: "50" },
+      {
+        key: "STALE_AFTER_DAYS",
+        label: "Stale-leads na (dagen)",
+        type: "number",
+        placeholder: "30",
+        hint: "Leads zonder activiteit (geen verzending, geen status-wijziging) langer dan dit aantal dagen worden automatisch op status='completed' gezet. Zo blijven ze niet hangen in queued/sent. Leeg of 0 = uit.",
+      },
     ],
   },
 ];

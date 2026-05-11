@@ -51,6 +51,8 @@ export {
 
 export { loadDigestStats, renderDigest } from "./digest.js";
 export type { DigestStats, RenderedDigest } from "./digest.js";
+
+export { deactivateStaleLeads, countStaleLeads } from "./stale-cleanup.js";
 export type {
   WarmupOptions,
   BounceCircuitOptions,

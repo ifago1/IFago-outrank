@@ -47,6 +47,7 @@ export const SETTING_KEYS = [
   "BOUNCE_WINDOW",
   "BOUNCE_MIN_SENT",
   "TICK_BATCH_SIZE",
+  "STALE_AFTER_DAYS",
   // Automation toggles
   "VARIANT_SELECTION",
   "SMART_WARMUP",
