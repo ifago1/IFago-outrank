@@ -5,6 +5,7 @@ import {
   isInSendWindow,
   isUnsubscribed,
   preSendCheck,
+  startOfDay,
 } from "./guards.js";
 
 const wedAt10 = new Date("2026-05-06T10:00:00"); // Wed (ISO 3)
@@ -20,6 +21,64 @@ describe("isInSendWindow", () => {
   });
   it("rejects out-of-hours", () => {
     expect(isInSendWindow(wedAt22, DEFAULT_SEND_WINDOW)).toBe(false);
+  });
+
+  describe("with explicit timezone", () => {
+    // 2026-05-13 06:30 UTC = Wed 08:30 Europe/Amsterdam — before the window.
+    const utc0630OnWed = new Date("2026-05-13T06:30:00Z");
+    // 2026-05-13 09:30 UTC = Wed 11:30 Europe/Amsterdam — inside the window.
+    const utc0930OnWed = new Date("2026-05-13T09:30:00Z");
+    // 2026-05-13 14:30 UTC = Wed 16:30 Europe/Amsterdam — past the window.
+    const utc1430OnWed = new Date("2026-05-13T14:30:00Z");
+
+    const amsWindow = { ...DEFAULT_SEND_WINDOW, timezone: "Europe/Amsterdam" };
+
+    it("interprets startHour/endHour in the configured tz", () => {
+      expect(isInSendWindow(utc0630OnWed, amsWindow)).toBe(false);
+      expect(isInSendWindow(utc0930OnWed, amsWindow)).toBe(true);
+      expect(isInSendWindow(utc1430OnWed, amsWindow)).toBe(false);
+    });
+
+    it("interprets weekdays in the configured tz", () => {
+      // Wed 23:30 UTC = Thu 01:30 Europe/Amsterdam. Window is 9-16 so the
+      // hour check still rejects it, but the weekday now resolves to Thu.
+      const utc2330OnWed = new Date("2026-05-13T23:30:00Z");
+      expect(isInSendWindow(utc2330OnWed, amsWindow)).toBe(false);
+      // Make the hour valid in Amsterdam by jumping forward; still Thu locally.
+      const utc1100OnWed = new Date("2026-05-13T11:00:00Z"); // Wed 13:00 Ams
+      expect(isInSendWindow(utc1100OnWed, amsWindow)).toBe(true);
+    });
+  });
+});
+
+describe("startOfDay", () => {
+  it("returns host-local midnight when tz is omitted", () => {
+    const sample = new Date("2026-05-13T12:34:56");
+    const result = startOfDay(sample);
+    expect(result.getHours()).toBe(0);
+    expect(result.getMinutes()).toBe(0);
+    expect(result.getSeconds()).toBe(0);
+    expect(result.getMilliseconds()).toBe(0);
+  });
+
+  it("returns the tz's midnight as a UTC instant", () => {
+    // 2026-05-13 06:30 UTC = Wed 08:30 Europe/Amsterdam.
+    // Midnight Ams on Wed = 2026-05-12 22:00 UTC.
+    const result = startOfDay(
+      new Date("2026-05-13T06:30:00Z"),
+      "Europe/Amsterdam",
+    );
+    expect(result.toISOString()).toBe("2026-05-12T22:00:00.000Z");
+  });
+
+  it("handles dates straddling the UTC day boundary correctly", () => {
+    // 2026-05-13 23:30 UTC = Thu 01:30 Europe/Amsterdam.
+    // Midnight Thu Ams = 2026-05-13 22:00 UTC, NOT 2026-05-13 00:00 UTC.
+    const result = startOfDay(
+      new Date("2026-05-13T23:30:00Z"),
+      "Europe/Amsterdam",
+    );
+    expect(result.toISOString()).toBe("2026-05-13T22:00:00.000Z");
   });
 });
 

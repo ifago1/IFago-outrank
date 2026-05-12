@@ -15,6 +15,7 @@ import { render, signUnsubscribeToken } from "@outreach/templates";
 import type { AnthropicPersonalizer } from "@outreach/ai-personalization";
 import {
   preSendCheck,
+  startOfDay,
   type SendWindow,
   type SkipReason,
 } from "./guards.js";
@@ -161,7 +162,7 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
 
   const due = await fetchDueLeads(cfg.db, now, batchSize);
   const unsubscribed = await fetchUnsubscribed(cfg.db);
-  const sentTodayBase = await countSentToday(cfg.db, now);
+  const sentTodayBase = await countSentToday(cfg.db, now, cfg.window.timezone);
 
   let sentNow = 0;
   let skipped = 0;
@@ -443,13 +444,16 @@ async function fetchRecentBounceStats(
   };
 }
 
-async function countSentToday(db: Db, now: Date): Promise<number> {
-  const startOfDay = new Date(now);
-  startOfDay.setHours(0, 0, 0, 0);
+async function countSentToday(
+  db: Db,
+  now: Date,
+  timezone?: string,
+): Promise<number> {
+  const dayStart = startOfDay(now, timezone);
   const rows = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(emailsSent)
-    .where(gte(emailsSent.sentAt, startOfDay));
+    .where(gte(emailsSent.sentAt, dayStart));
   return rows[0]?.count ?? 0;
 }
 

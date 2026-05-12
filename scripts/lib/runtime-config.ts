@@ -51,6 +51,11 @@ export async function buildRuntimeConfig(
     weekdays: cfg.SEND_WEEKDAYS
       ? cfg.SEND_WEEKDAYS.split(",").map((s) => Number(s.trim()))
       : DEFAULT_SEND_WINDOW.weekdays,
+    // Default to the agency's local tz — without this the 9-16 window
+    // is interpreted in container time (UTC in Docker), so a Dutch user
+    // who sets SEND_WINDOW_START=9 doesn't see any sends until 11:00
+    // local in summer / 10:00 in winter.
+    timezone: cfg.SEND_TIMEZONE ?? "Europe/Amsterdam",
   };
 
   const warmup =

@@ -3,6 +3,7 @@ export {
   isInSendWindow,
   isUnsubscribed,
   isDailyLimitReached,
+  startOfDay,
   DEFAULT_SEND_WINDOW,
 } from "./guards.js";
 export type {

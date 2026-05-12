@@ -135,6 +135,13 @@ const SECTIONS: Section[] = [
       { key: "SEND_WINDOW_START", label: "Venster start (uur)", type: "number", placeholder: "9" },
       { key: "SEND_WINDOW_END", label: "Venster eind (uur)", type: "number", placeholder: "16" },
       { key: "SEND_WEEKDAYS", label: "Weekdagen (1=ma … 7=zo, csv)", type: "text", placeholder: "2,3,4" },
+      {
+        key: "SEND_TIMEZONE",
+        label: "Tijdzone",
+        type: "text",
+        placeholder: "Europe/Amsterdam",
+        hint: "IANA-naam waarin de start/eind-uren én weekdagen worden geïnterpreteerd. Leeg = Europe/Amsterdam (default). Containers draaien doorgaans in UTC; zonder deze setting schuift een 9-16 venster naar 11-18 lokaal in zomertijd.",
+      },
       { key: "WARMUP_DAYS", label: "Warmup dagen (0 = uit)", type: "number", placeholder: "14" },
       { key: "WARMUP_FLOOR", label: "Warmup ondergrens (dag-1 cap)", type: "number", placeholder: "5" },
     ],
