@@ -1,4 +1,5 @@
 import { desc, eq } from "drizzle-orm";
+import Link from "next/link";
 import {
   businesses,
   campaignLeads,
@@ -16,6 +17,7 @@ export default async function SentPage() {
 
   const rows = await db
     .select({
+      id: emailsSent.id,
       sentAt: emailsSent.sentAt,
       stepOrder: emailsSent.stepOrder,
       subject: emailsSent.subject,
@@ -40,7 +42,7 @@ export default async function SentPage() {
     <>
       <PageHeader
         title="Sent"
-        subtitle={`Laatste ${rows.length} verzonden mails (nieuwste eerst)`}
+        subtitle={`Laatste ${rows.length} verzonden mails (nieuwste eerst) — klik subject voor inhoud`}
       />
       <Table
         columns={[
@@ -64,15 +66,21 @@ export default async function SentPage() {
             openedAt={r.openedAt}
           />,
           `${r.firstName ? r.firstName + " — " : ""}${r.email}`,
-          <a
+          <Link
             key="b"
             href={`/leads/${r.businessId}`}
             style={{ color: "#7aa7ff", textDecoration: "none" }}
           >
             {r.businessName}
-          </a>,
+          </Link>,
           r.campaignName,
-          r.subject,
+          <Link
+            key="subj"
+            href={`/sent/${r.id}`}
+            style={{ color: "#7aa7ff", textDecoration: "none" }}
+          >
+            {r.subject}
+          </Link>,
         ])}
         empty="Nog niks verstuurd."
       />
