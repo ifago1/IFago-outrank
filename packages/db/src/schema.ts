@@ -86,6 +86,13 @@ export const campaigns = pgTable("campaigns", {
   autoAssignMaxScore: integer("auto_assign_max_score"),
   /** Cap op het totaal-aantal leads in deze campagne via auto-assign. */
   autoAssignMaxLeads: integer("auto_assign_max_leads"),
+  /**
+   * Per-campagne AI-mailgeneratie: wanneer aan en globale
+   * AI_GENERATE_EMAILS staat ook aan, schrijft Claude per send subject
+   * + body o.b.v. business + audit (incl. website-content-samenvatting)
+   * + reviews. Bij failure terugval op sequence-template.
+   */
+  aiGenerateEmails: boolean("ai_generate_emails").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

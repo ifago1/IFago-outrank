@@ -125,6 +125,7 @@ interface DueRow {
   cachedObservation: string | null;
   campaignNiche: string | null;
   campaignName: string;
+  campaignAiGenerateEmails: boolean;
 }
 
 /**
@@ -293,14 +294,17 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
       unsubscribe_url: unsubUrl,
     };
 
-    // AI-generated subject + body if cfg.emailWriter is configured.
-    // Fallback to the static template on any failure so one Anthropic
-    // outage doesn't halt sends.
+    // AI-generated subject + body alleen wanneer:
+    //   1) globale AI_GENERATE_EMAILS is aan (cfg.emailWriter gezet)
+    //   2) per-campaign vlag staat ook aan
+    // Fallback naar static template bij elke failure zodat één
+    // Anthropic-outage geen sends blokkeert.
     let subject: string;
     let body: string;
-    const ai = cfg.emailWriter
-      ? await tryGenerateEmail(cfg.emailWriter, row, stepDef.stepOrder)
-      : null;
+    const ai =
+      cfg.emailWriter && row.campaignAiGenerateEmails
+        ? await tryGenerateEmail(cfg.emailWriter, row, stepDef.stepOrder)
+        : null;
     if (ai) {
       // AI body ends with {{sender_name}} per the prompt; append the
       // same unsub-footer the templates use, then render placeholders.
@@ -429,6 +433,7 @@ async function fetchDueLeads(
       cachedObservation: businesses.personalObservation,
       campaignNiche: campaigns.niche,
       campaignName: campaigns.name,
+      campaignAiGenerateEmails: campaigns.aiGenerateEmails,
     })
     .from(campaignLeads)
     .innerJoin(contacts, eq(contacts.id, campaignLeads.contactId))

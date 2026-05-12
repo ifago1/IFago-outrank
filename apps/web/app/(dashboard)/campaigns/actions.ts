@@ -155,6 +155,30 @@ export async function updateAutoAssignRules(
   };
 }
 
+export async function updateAiMode(
+  campaignId: string,
+  form: FormData,
+): Promise<CampaignActionResult> {
+  if (!campaignId) return { ok: false, message: "Geen campaign-id." };
+  const aiEnabled = form.get("aiEnabled") === "on";
+
+  const db = getDb();
+  await db
+    .update(campaigns)
+    .set({ aiGenerateEmails: aiEnabled })
+    .where(eq(campaigns.id, campaignId));
+
+  revalidatePath(`/campaigns/${campaignId}`);
+  revalidatePath("/campaigns");
+
+  return {
+    ok: true,
+    message: aiEnabled
+      ? "AI-mailgeneratie aan — vanaf de volgende tick schrijft Claude de mails."
+      : "Terug naar sequence-templates voor deze campagne.",
+  };
+}
+
 export async function updateSequenceStep(
   campaignId: string,
   stepOrder: number,

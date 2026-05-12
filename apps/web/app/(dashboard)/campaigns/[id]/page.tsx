@@ -1,8 +1,9 @@
 import { asc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
-import { campaigns, getDb, sequenceSteps } from "@outreach/db";
+import { campaigns, getDb, getSetting, sequenceSteps } from "@outreach/db";
 import { previewAutoAssign } from "@outreach/sequencer";
 import { PageHeader } from "../../_ui";
+import { AiModeEditor } from "./ai-mode-editor";
 import { AutoAssignEditor } from "./auto-assign-editor";
 import { SequenceEditor, type StepView } from "./sequence-editor";
 
@@ -40,11 +41,30 @@ export default async function CampaignDetailPage({
 
   const preview = await previewAutoAssign(db, id);
 
+  // Snapshot van de globale AI-instellingen voor de waarschuwing in de
+  // campagne-UI ("je hebt AI aan voor deze campagne, maar globaal staat
+  // 'ie uit dus er gebeurt niks").
+  const globalAiRaw = (await getSetting(db, "AI_GENERATE_EMAILS")) ?? process.env["AI_GENERATE_EMAILS"];
+  const globalAiEnabled =
+    globalAiRaw !== undefined &&
+    globalAiRaw !== "" &&
+    globalAiRaw !== "false" &&
+    globalAiRaw !== "0";
+  const hasAnthropicKey = Boolean(
+    (await getSetting(db, "ANTHROPIC_API_KEY")) ?? process.env["ANTHROPIC_API_KEY"],
+  );
+
   return (
     <>
       <PageHeader
         title={campaign.name}
         subtitle={`${campaign.niche ?? "no niche"} · status: ${campaign.status}`}
+      />
+      <AiModeEditor
+        campaignId={id}
+        aiEnabled={campaign.aiGenerateEmails}
+        globalAiEnabled={globalAiEnabled}
+        hasAnthropicKey={hasAnthropicKey}
       />
       <AutoAssignEditor
         campaignId={id}
