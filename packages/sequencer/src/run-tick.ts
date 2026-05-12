@@ -119,6 +119,9 @@ interface DueRow {
   businessRating: string | null; // numeric -> string in pg
   businessReviewsCount: number | null;
   businessRawData: unknown;
+  businessWebsiteUrl: string | null;
+  businessWebsiteQuality: string | null;
+  businessAuditDetail: unknown;
   cachedObservation: string | null;
   campaignNiche: string | null;
   campaignName: string;
@@ -290,8 +293,27 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
       unsubscribe_url: unsubUrl,
     };
 
-    const subject = render(subjectTemplate, vars, { onMissing: "blank" });
-    const body = render(bodyTemplate, vars, { onMissing: "blank" });
+    // AI-generated subject + body if cfg.emailWriter is configured.
+    // Fallback to the static template on any failure so one Anthropic
+    // outage doesn't halt sends.
+    let subject: string;
+    let body: string;
+    const ai = cfg.emailWriter
+      ? await tryGenerateEmail(cfg.emailWriter, row, stepDef.stepOrder)
+      : null;
+    if (ai) {
+      // AI body ends with {{sender_name}} per the prompt; append the
+      // same unsub-footer the templates use, then render placeholders.
+      subject = render(ai.subject, vars, { onMissing: "blank" });
+      body = render(
+        `${ai.body}\n\n—\nLiever geen mails? {{unsubscribe_url}}`,
+        vars,
+        { onMissing: "blank" },
+      );
+    } else {
+      subject = render(subjectTemplate, vars, { onMissing: "blank" });
+      body = render(bodyTemplate, vars, { onMissing: "blank" });
+    }
 
     if (cfg.dryRun) {
       outcomes.push({
@@ -401,6 +423,9 @@ async function fetchDueLeads(
       businessRating: businesses.googleRating,
       businessReviewsCount: businesses.reviewsCount,
       businessRawData: businesses.rawPlacesData,
+      businessWebsiteUrl: businesses.websiteUrl,
+      businessWebsiteQuality: businesses.websiteQuality,
+      businessAuditDetail: businesses.auditDetail,
       cachedObservation: businesses.personalObservation,
       campaignNiche: campaigns.niche,
       campaignName: campaigns.name,
@@ -597,6 +622,83 @@ async function resolveObservation(
       .where(eq(businesses.id, row.businessId));
     return heuristic;
   }
+}
+
+/**
+ * Try to generate subject + body via the EmailWriter. Returns null on any
+ * failure (network, parse-error, rate-limit) so the caller can fall back
+ * to the static template — never let one bad AI call halt the tick.
+ */
+async function tryGenerateEmail(
+  writer: EmailWriter,
+  row: DueRow,
+  stepOrder: number,
+): Promise<{ subject: string; body: string } | null> {
+  try {
+    const reviewSnippets = extractReviewSnippets(row.businessRawData);
+    const audit = parseAuditDetail(row.businessAuditDetail);
+    const result = await writer.generate({
+      businessName: row.businessName,
+      niche: row.campaignNiche,
+      city: row.businessCity,
+      rating: row.businessRating ? Number(row.businessRating) : null,
+      reviewsCount: row.businessReviewsCount,
+      reviewSnippets,
+      websiteUrl: row.businessWebsiteUrl,
+      websiteQuality: parseWebsiteQuality(row.businessWebsiteQuality),
+      psiPerformanceMobile: audit.psiPerformanceMobile,
+      auditSummary: audit.summary,
+      auditWeaknesses: audit.weaknesses,
+      stepOrder,
+    });
+    return { subject: result.subject, body: result.body };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[runSendTick] EmailWriter failed for ${row.email} step ${stepOrder}, falling back to template: ${msg}`,
+    );
+    return null;
+  }
+}
+
+function parseWebsiteQuality(
+  q: string | null,
+): "good" | "decent" | "outdated" | "none" | null {
+  if (q === "good" || q === "decent" || q === "outdated" || q === "none") {
+    return q;
+  }
+  return null;
+}
+
+interface ParsedAudit {
+  summary: string | null;
+  weaknesses: string[];
+  psiPerformanceMobile: number | null;
+}
+
+function parseAuditDetail(raw: unknown): ParsedAudit {
+  const out: ParsedAudit = {
+    summary: null,
+    weaknesses: [],
+    psiPerformanceMobile: null,
+  };
+  if (!raw || typeof raw !== "object") return out;
+  const r = raw as Record<string, unknown>;
+  const ai = r["ai"] as Record<string, unknown> | undefined;
+  if (ai && typeof ai === "object") {
+    if (typeof ai["summary"] === "string") out.summary = ai["summary"];
+    if (Array.isArray(ai["weaknesses"])) {
+      out.weaknesses = ai["weaknesses"].filter(
+        (w): w is string => typeof w === "string",
+      );
+    }
+  }
+  const psi = r["psi"] as Record<string, unknown> | undefined;
+  if (psi && typeof psi === "object") {
+    const perf = psi["performanceMobile"];
+    if (typeof perf === "number") out.psiPerformanceMobile = perf;
+  }
+  return out;
 }
 
 /**

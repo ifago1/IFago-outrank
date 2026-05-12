@@ -121,9 +121,33 @@ const SECTIONS: Section[] = [
     title: "Overige externe APIs",
     fields: [
       { key: "ANTHROPIC_API_KEY", label: "Anthropic API key", type: "password", hint: "Optioneel — voor AI-personalisatie." },
-      { key: "AI_MODEL", label: "AI model", type: "text", placeholder: "claude-opus-4-7", hint: "claude-haiku-4-5 is ~5x goedkoper voor één-zin output." },
+      { key: "AI_MODEL", label: "AI model (observation)", type: "text", placeholder: "claude-opus-4-7", hint: "Voor de éénregelige {{personal_observation}}. claude-haiku-4-5 is ~5x goedkoper." },
       { key: "HUNTER_API_KEY", label: "Hunter.io API key", type: "password", hint: "Optioneel — voor betere email-enrichment." },
       { key: "PSI_API_KEY", label: "PageSpeed Insights API key (optioneel)", type: "password", hint: "Mag dezelfde Google-key zijn — laat leeg als je die hergebruikt." },
+    ],
+  },
+  {
+    title: "AI-mailgeneratie",
+    description:
+      "Wanneer aan, schrijft Claude per send een unieke subject + body o.b.v. business + audit + reviews + step-context. Bij elke failure (timeout, parse-error) valt de send terug op de sequence-template — geen risico op vastlopen. Vereist ANTHROPIC_API_KEY.",
+    fields: [
+      {
+        key: "AI_GENERATE_EMAILS",
+        label: "Per-send AI subject + body",
+        type: "select",
+        options: [
+          { value: "", label: "Uit (gebruik sequence-templates)" },
+          { value: "true", label: "Aan" },
+        ],
+        hint: "Cost-orde: bij ~$0.001/call (Haiku) zit je op een paar cent per dag voor 60 sends. Opus 5-10x duurder.",
+      },
+      {
+        key: "AI_EMAIL_MODEL",
+        label: "AI model (mail-content)",
+        type: "text",
+        placeholder: "claude-haiku-4-5",
+        hint: "Default claude-haiku-4-5. Overschrijf met bv. claude-sonnet-4-6 of claude-opus-4-7 als je kwaliteit boven cost wil.",
+      },
     ],
   },
   {

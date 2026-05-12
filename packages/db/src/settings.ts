@@ -31,6 +31,8 @@ export const SETTING_KEYS = [
   "GOOGLE_GEOCODING_API_KEY",
   "ANTHROPIC_API_KEY",
   "AI_MODEL",
+  "AI_GENERATE_EMAILS",
+  "AI_EMAIL_MODEL",
   "HUNTER_API_KEY",
   "PSI_API_KEY",
   // Sending hygiene

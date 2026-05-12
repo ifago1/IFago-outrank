@@ -8,6 +8,7 @@ import { type Db } from "@outreach/db";
 import { createMailer, type Mailer } from "@outreach/mailer";
 import {
   AnthropicPersonalizer,
+  EmailWriter,
 } from "@outreach/ai-personalization";
 import {
   DEFAULT_SEND_WINDOW,
@@ -40,6 +41,20 @@ export async function buildRuntimeConfig(
         ...(cfg.AI_MODEL ? { model: cfg.AI_MODEL } : {}),
       })
     : undefined;
+  // AI-generated subject+body is opt-in via AI_GENERATE_EMAILS (any
+  // truthy non-"false" value enables it). Uses AI_EMAIL_MODEL when set,
+  // otherwise the EmailWriter default (claude-haiku-4-5 — cost-friendly
+  // for ~$0.001/call). Requires ANTHROPIC_API_KEY.
+  const emailWriter =
+    cfg.ANTHROPIC_API_KEY &&
+    cfg.AI_GENERATE_EMAILS &&
+    cfg.AI_GENERATE_EMAILS !== "false" &&
+    cfg.AI_GENERATE_EMAILS !== "0"
+      ? new EmailWriter({
+          apiKey: cfg.ANTHROPIC_API_KEY,
+          ...(cfg.AI_EMAIL_MODEL ? { model: cfg.AI_EMAIL_MODEL } : {}),
+        })
+      : undefined;
 
   const window = {
     startHour: cfg.SEND_WINDOW_START
@@ -92,6 +107,7 @@ export async function buildRuntimeConfig(
     ...(bounceCircuit ? { bounceCircuit } : {}),
     ...(input.dryRun ? { dryRun: input.dryRun } : {}),
     personalizer,
+    emailWriter,
   };
 }
 
