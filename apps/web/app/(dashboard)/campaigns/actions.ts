@@ -11,6 +11,7 @@ import { DEFAULT_SEQUENCE } from "@outreach/templates";
 import type { CampaignActionResult } from "./types";
 
 const VALID_STATUSES = new Set(["draft", "active", "paused"]);
+const VALID_QUALITIES = new Set(["good", "decent", "outdated", "none"]);
 
 export async function createCampaign(
   form: FormData,
@@ -83,6 +84,56 @@ export async function deleteCampaign(
   await db.delete(campaigns).where(eq(campaigns.id, id));
   revalidatePath("/campaigns");
   return { ok: true, message: "Verwijderd." };
+}
+
+function parseCsv(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+export async function updateAutoAssignRules(
+  campaignId: string,
+  form: FormData,
+): Promise<CampaignActionResult> {
+  if (!campaignId) return { ok: false, message: "Geen campaign-id." };
+
+  const enabled = form.get("enabled") === "on";
+  const niches = parseCsv(String(form.get("niches") ?? ""));
+  const cities = parseCsv(String(form.get("cities") ?? ""));
+  const qualities = form
+    .getAll("websiteQualities")
+    .map((v) => String(v))
+    .filter((v) => VALID_QUALITIES.has(v));
+  const priorityRaw = String(form.get("priority") ?? "0").trim();
+  const priority = Math.max(0, Math.min(100, Number(priorityRaw) || 0));
+
+  const db = getDb();
+  await db
+    .update(campaigns)
+    .set({
+      autoAssignEnabled: enabled,
+      matchNiches: niches.length > 0 ? niches : null,
+      matchCities: cities.length > 0 ? cities : null,
+      matchWebsiteQualities: qualities.length > 0 ? qualities : null,
+      matchPriority: priority,
+    })
+    .where(eq(campaigns.id, campaignId));
+
+  revalidatePath(`/campaigns/${campaignId}`);
+  revalidatePath("/campaigns");
+
+  const filters: string[] = [];
+  if (niches.length > 0) filters.push(`${niches.length} niches`);
+  if (cities.length > 0) filters.push(`${cities.length} steden`);
+  if (qualities.length > 0) filters.push(`${qualities.length} kwaliteits-buckets`);
+  const filterDesc = filters.length > 0 ? filters.join(", ") : "geen filters (catch-all)";
+
+  return {
+    ok: true,
+    message: `Auto-assign ${enabled ? "AAN" : "uit"} — ${filterDesc}, prio=${priority}.`,
+  };
 }
 
 export async function updateSequenceStep(

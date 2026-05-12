@@ -1,6 +1,8 @@
 import { Worker, type WorkerOptions } from "bullmq";
 import {
+  runAutoAssign,
   runSendTick,
+  type AutoAssignResult,
   type RunTickConfig,
   type TickResult,
 } from "@outreach/sequencer";
@@ -30,6 +32,13 @@ export interface CreateTickWorkerOptions {
    * after every successful run.
    */
   onTickComplete?: (result: TickResult) => void | Promise<void>;
+  /**
+   * Optional hook called after the auto-assign sweep at the start of
+   * each tick. Skipped when no auto-assign campaigns exist.
+   */
+  onAutoAssignComplete?: (
+    result: AutoAssignResult,
+  ) => void | Promise<void>;
   /**
    * BullMQ concurrency — how many ticks run in parallel on this worker.
    * Default 1: each tick is large already (batches up to N leads internally),
@@ -69,6 +78,22 @@ export function createTickWorker(opts: CreateTickWorkerOptions): Worker<TickJobD
       }
       try {
         const config = await opts.buildConfig();
+        // Auto-assign sweep first: nieuwe leads die nog niet in een
+        // campagne zitten landen in een matchende auto-assign-campagne
+        // voor we ze direct deze tick proberen te versturen. Bij geen
+        // auto-assign-campagnes is dit een goedkope SELECT zonder
+        // verdere I/O.
+        try {
+          const aa = await runAutoAssign(config.db);
+          if ((aa.assigned > 0 || aa.unmatched > 0) && opts.onAutoAssignComplete) {
+            await opts.onAutoAssignComplete(aa);
+          }
+        } catch (err) {
+          console.error(
+            "[queue] auto-assign failed (continuing with send tick):",
+            err instanceof Error ? err.message : err,
+          );
+        }
         const result = await runSendTick(config);
         if (opts.onTickComplete) await opts.onTickComplete(result);
         return result;

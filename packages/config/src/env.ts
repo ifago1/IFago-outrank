@@ -146,6 +146,7 @@ const PROFILES = {
   "score-websites": DbSlice,
   "seed-campaign": DbSlice,
   "assign-leads": DbSlice,
+  "auto-assign": DbSlice,
   "send-tick": DbSlice.merge(MailerSlice).merge(AiSlice),
   worker: DbSlice.merge(MailerSlice).merge(QueueSlice).merge(AiSlice),
   "schedule-ticks": QueueSlice,

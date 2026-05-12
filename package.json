@@ -21,6 +21,7 @@
     "score-websites": "tsx scripts/score-websites.ts",
     "seed-campaign": "tsx scripts/seed-campaign.ts",
     "assign-leads": "tsx scripts/assign-leads.ts",
+    "auto-assign": "tsx scripts/auto-assign.ts",
     "send-tick": "tsx scripts/send-tick.ts",
     "worker": "tsx scripts/worker.ts",
     "schedule-ticks": "tsx scripts/schedule-ticks.ts",

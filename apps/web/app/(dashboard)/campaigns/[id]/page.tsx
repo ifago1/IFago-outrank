@@ -1,7 +1,9 @@
 import { asc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { campaigns, getDb, sequenceSteps } from "@outreach/db";
+import { previewAutoAssign } from "@outreach/sequencer";
 import { PageHeader } from "../../_ui";
+import { AutoAssignEditor } from "./auto-assign-editor";
 import { SequenceEditor, type StepView } from "./sequence-editor";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +38,22 @@ export default async function CampaignDetailPage({
     bodyTemplate: s.bodyTemplate,
   }));
 
+  const preview = await previewAutoAssign(db, id);
+
   return (
     <>
       <PageHeader
         title={campaign.name}
         subtitle={`${campaign.niche ?? "no niche"} · status: ${campaign.status}`}
+      />
+      <AutoAssignEditor
+        campaignId={id}
+        enabled={campaign.autoAssignEnabled}
+        niches={campaign.matchNiches ?? []}
+        cities={campaign.matchCities ?? []}
+        websiteQualities={campaign.matchWebsiteQualities ?? []}
+        priority={campaign.matchPriority}
+        preview={preview}
       />
       <SequenceEditor campaignId={id} steps={stepViews} />
     </>

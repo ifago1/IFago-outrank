@@ -39,3 +39,15 @@ export type {
   BounceCircuitOptions,
   BounceCircuitDecision,
 } from "./health.js";
+
+export {
+  findMatchingCampaign,
+  runAutoAssign,
+  previewAutoAssign,
+} from "./auto-assign.js";
+export type {
+  CandidateLead,
+  CampaignRule,
+  AutoAssignResult,
+  RunAutoAssignOptions,
+} from "./auto-assign.js";

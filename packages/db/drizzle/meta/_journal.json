@@ -50,6 +50,13 @@
       "when": 1715040000000,
       "tag": "0006_audit_detail",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1715126400000,
+      "tag": "0007_campaign_auto_assign",
+      "breakpoints": true
     }
   ]
 }

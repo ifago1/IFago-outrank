@@ -68,6 +68,23 @@ export const campaigns = pgTable("campaigns", {
   name: text("name").notNull(),
   niche: text("niche"),
   status: text("status").notNull().default("draft"),
+  /**
+   * Auto-assign: leads die matchen op alle gezette filters worden
+   * automatisch aan deze campagne toegevoegd (mits ze een contact
+   * hebben). Default uit zodat bestaande campagnes opt-in zijn.
+   */
+  autoAssignEnabled: boolean("auto_assign_enabled").notNull().default(false),
+  /** Match-set; leeg = "alle niches matchen". Case-insensitive substring. */
+  matchNiches: text("match_niches").array(),
+  /** Match-set op `businesses.city`. Case-insensitive exact match. */
+  matchCities: text("match_cities").array(),
+  /** Subset van ["good","decent","outdated","none"]. */
+  matchWebsiteQualities: text("match_website_qualities").array(),
+  /**
+   * Hoger = wint bij meerdere matches. Default 0. Standaard tie-break is
+   * de specificere campagne (meer niet-lege filters).
+   */
+  matchPriority: integer("match_priority").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

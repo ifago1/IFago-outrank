@@ -37,6 +37,11 @@ const tickWorker = createTickWorker({
       `[worker] tick: evaluated=${result.evaluated} sent=${result.sent} skipped=${result.skipped} failed=${result.failed}`,
     );
   },
+  onAutoAssignComplete: (aa) => {
+    console.log(
+      `[worker] auto-assign: assigned=${aa.assigned} unmatched=${aa.unmatched} skipped=${aa.skippedAlreadyInCampaign}`,
+    );
+  },
 });
 
 const discoverWorker = createDiscoverWorker({
