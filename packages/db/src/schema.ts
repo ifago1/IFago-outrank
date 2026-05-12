@@ -69,22 +69,23 @@ export const campaigns = pgTable("campaigns", {
   niche: text("niche"),
   status: text("status").notNull().default("draft"),
   /**
-   * Auto-assign: leads die matchen op alle gezette filters worden
+   * Auto-assign: leads matchen op de filters hieronder worden
    * automatisch aan deze campagne toegevoegd (mits ze een contact
    * hebben). Default uit zodat bestaande campagnes opt-in zijn.
    */
   autoAssignEnabled: boolean("auto_assign_enabled").notNull().default(false),
-  /** Match-set; leeg = "alle niches matchen". Case-insensitive substring. */
-  matchNiches: text("match_niches").array(),
-  /** Match-set op `businesses.city`. Case-insensitive exact match. */
-  matchCities: text("match_cities").array(),
-  /** Subset van ["good","decent","outdated","none"]. */
-  matchWebsiteQualities: text("match_website_qualities").array(),
-  /**
-   * Hoger = wint bij meerdere matches. Default 0. Standaard tie-break is
-   * de specificere campagne (meer niet-lege filters).
-   */
-  matchPriority: integer("match_priority").notNull().default(0),
+  /** Single keyword, case-insensitive substring tegen Google Places-categorie. */
+  autoAssignNiche: text("auto_assign_niche"),
+  /** Case-insensitive exact tegen `businesses.city`. */
+  autoAssignCity: text("auto_assign_city"),
+  /** Bucket: good / decent / outdated / none. */
+  autoAssignWebsiteQuality: text("auto_assign_website_quality"),
+  /** Inclusieve ondergrens op businesses.audit_detail.htmlScore (0-100). */
+  autoAssignMinScore: integer("auto_assign_min_score"),
+  /** Inclusieve bovengrens op businesses.audit_detail.htmlScore (0-100). */
+  autoAssignMaxScore: integer("auto_assign_max_score"),
+  /** Cap op het totaal-aantal leads in deze campagne via auto-assign. */
+  autoAssignMaxLeads: integer("auto_assign_max_leads"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

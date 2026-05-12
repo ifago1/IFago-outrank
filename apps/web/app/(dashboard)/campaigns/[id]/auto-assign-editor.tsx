@@ -4,7 +4,8 @@ import { useState, useTransition, type CSSProperties } from "react";
 import { updateAutoAssignRules } from "../actions";
 import type { CampaignActionResult } from "../types";
 
-const ALL_QUALITIES = [
+const QUALITIES = [
+  { value: "", label: "Alle (geen filter)" },
   { value: "good", label: "good (moderne site)" },
   { value: "decent", label: "decent" },
   { value: "outdated", label: "outdated (verouderd)" },
@@ -14,18 +15,22 @@ const ALL_QUALITIES = [
 export function AutoAssignEditor({
   campaignId,
   enabled,
-  niches,
-  cities,
-  websiteQualities,
-  priority,
+  niche,
+  city,
+  websiteQuality,
+  minScore,
+  maxScore,
+  maxLeads,
   preview,
 }: {
   campaignId: string;
   enabled: boolean;
-  niches: string[];
-  cities: string[];
-  websiteQualities: string[];
-  priority: number;
+  niche: string | null;
+  city: string | null;
+  websiteQuality: string | null;
+  minScore: number | null;
+  maxScore: number | null;
+  maxLeads: number | null;
   preview: { matching: number; alreadyAssigned: number };
 }) {
   const [pending, startTransition] = useTransition();
@@ -46,10 +51,10 @@ export function AutoAssignEditor({
         <div>
           <h2 style={h2Style}>Auto-assign regels</h2>
           <p style={descStyle}>
-            Wanneer aan, krijgen nieuwe leads die alle gezette filters matchen
-            (niche + locatie + website-kwaliteit) deze campagne toegewezen. Bij
-            meerdere matches wint de campagne met hoogste prioriteit, daarna
-            de specificere (meer niet-lege filters).
+            Wanneer aan, gaan nieuwe leads die alle gezette filters matchen
+            (niche + locatie + website-kwaliteit + score-range) automatisch in
+            deze campagne. Bij meerdere matches wint de campagne met de meeste
+            niet-lege filters.
           </p>
         </div>
         <div style={previewBoxStyle}>
@@ -64,46 +69,46 @@ export function AutoAssignEditor({
       </header>
 
       <form onSubmit={onSubmit}>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>
+            <input
+              type="checkbox"
+              name="enabled"
+              defaultChecked={enabled}
+              style={{ marginRight: "0.5rem" }}
+            />
+            Auto-assign aan voor deze campagne
+          </label>
+          <p style={hintStyle}>
+            Zet pas aan als de filters hieronder kloppen. Niets ingevuld
+            = catch-all (alle nieuwe leads landen hier).
+          </p>
+        </div>
+
         <div style={gridStyle}>
           <div style={fieldStyle}>
-            <label style={labelStyle}>
-              <input
-                type="checkbox"
-                name="enabled"
-                defaultChecked={enabled}
-                style={{ marginRight: "0.5rem" }}
-              />
-              Auto-assign aan voor deze campagne
-            </label>
-            <p style={hintStyle}>
-              Zet pas aan als de filters hieronder kloppen. Niets ingevuld
-              = catch-all, alle nieuwe leads gaan deze kant op.
-            </p>
-          </div>
-
-          <div style={fieldStyle}>
-            <label style={labelTextStyle}>Niches (csv)</label>
+            <label style={labelTextStyle}>Niche</label>
             <input
               type="text"
-              name="niches"
-              defaultValue={niches.join(", ")}
-              placeholder="kapper, kapsalon, hair"
+              name="niche"
+              defaultValue={niche ?? ""}
+              placeholder="hair salon"
               style={inputStyle}
             />
             <p style={hintStyle}>
-              Case-insensitive substring tegen Google Places-categorie.
-              Places levert vaak Engels (&ldquo;Hair salon&rdquo;) — voeg
-              dus zowel NL als EN keywords toe.
+              Case-insensitive substring tegen Google Places-categorie. Places
+              levert vaak Engels (&ldquo;Hair salon&rdquo;) — pak een keyword
+              dat in jouw type lead voorkomt.
             </p>
           </div>
 
           <div style={fieldStyle}>
-            <label style={labelTextStyle}>Steden (csv)</label>
+            <label style={labelTextStyle}>Stad</label>
             <input
               type="text"
-              name="cities"
-              defaultValue={cities.join(", ")}
-              placeholder="Utrecht, Amsterdam"
+              name="city"
+              defaultValue={city ?? ""}
+              placeholder="Utrecht"
               style={inputStyle}
             />
             <p style={hintStyle}>
@@ -113,37 +118,64 @@ export function AutoAssignEditor({
 
           <div style={fieldStyle}>
             <label style={labelTextStyle}>Website-kwaliteit</label>
-            <div style={checkboxRowStyle}>
-              {ALL_QUALITIES.map((q) => (
-                <label key={q.value} style={checkboxLabelStyle}>
-                  <input
-                    type="checkbox"
-                    name="websiteQualities"
-                    value={q.value}
-                    defaultChecked={websiteQualities.includes(q.value)}
-                  />
+            <select
+              name="websiteQuality"
+              defaultValue={websiteQuality ?? ""}
+              style={inputStyle}
+            >
+              {QUALITIES.map((q) => (
+                <option key={q.value} value={q.value}>
                   {q.label}
-                </label>
+                </option>
               ))}
-            </div>
+            </select>
             <p style={hintStyle}>
-              Selecteer de buckets die deze campagne accepteert. Leeg = alle.
-              &ldquo;none&rdquo; = leads zonder website.
+              Welke bucket accepteert deze campagne? &ldquo;none&rdquo; =
+              leads zonder website.
             </p>
           </div>
 
           <div style={fieldStyle}>
-            <label style={labelTextStyle}>Prioriteit</label>
+            <label style={labelTextStyle}>Score-range (0-100)</label>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <input
+                type="number"
+                name="minScore"
+                defaultValue={minScore ?? ""}
+                placeholder="min"
+                min={0}
+                max={100}
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <input
+                type="number"
+                name="maxScore"
+                defaultValue={maxScore ?? ""}
+                placeholder="max"
+                min={0}
+                max={100}
+                style={{ ...inputStyle, flex: 1 }}
+              />
+            </div>
+            <p style={hintStyle}>
+              Range op businesses.audit_detail.htmlScore (Tier-1 HTML-audit).
+              Leeg = geen filter. Bv. min=0 max=40 voor &ldquo;slechte sites&rdquo;.
+            </p>
+          </div>
+
+          <div style={fieldStyle}>
+            <label style={labelTextStyle}>Max leads in campagne</label>
             <input
               type="number"
-              name="priority"
-              defaultValue={priority}
-              min={0}
-              max={100}
-              style={{ ...inputStyle, maxWidth: "120px" }}
+              name="maxLeads"
+              defaultValue={maxLeads ?? ""}
+              placeholder="onbeperkt"
+              min={1}
+              style={inputStyle}
             />
             <p style={hintStyle}>
-              Hoger wint bij gelijke specificiteit. Default 0.
+              Cap op totaal-aantal leads. Auto-assign stopt zodra hit. Leeg
+              = onbeperkt.
             </p>
           </div>
         </div>
@@ -184,10 +216,7 @@ const headerStyle: CSSProperties = {
   marginBottom: "1rem",
 };
 
-const h2Style: CSSProperties = {
-  margin: 0,
-  fontSize: "1.05rem",
-};
+const h2Style: CSSProperties = { margin: 0, fontSize: "1.05rem" };
 
 const descStyle: CSSProperties = {
   margin: "0.4rem 0 0",
@@ -223,8 +252,9 @@ const previewSubStyle: CSSProperties = {
 
 const gridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
   gap: "1rem",
+  marginTop: "1rem",
 };
 
 const fieldStyle: CSSProperties = {
@@ -252,19 +282,6 @@ const inputStyle: CSSProperties = {
   fontSize: "0.9rem",
 };
 
-const checkboxRowStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.25rem",
-};
-
-const checkboxLabelStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0.4rem",
-  fontSize: "0.85rem",
-};
-
 const hintStyle: CSSProperties = {
   margin: 0,
   fontSize: "0.75rem",
@@ -290,6 +307,4 @@ const btnStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-const resultStyle: CSSProperties = {
-  fontSize: "0.85rem",
-};
+const resultStyle: CSSProperties = { fontSize: "0.85rem" };

@@ -49,10 +49,12 @@ export default async function CampaignDetailPage({
       <AutoAssignEditor
         campaignId={id}
         enabled={campaign.autoAssignEnabled}
-        niches={campaign.matchNiches ?? []}
-        cities={campaign.matchCities ?? []}
-        websiteQualities={campaign.matchWebsiteQualities ?? []}
-        priority={campaign.matchPriority}
+        niche={campaign.autoAssignNiche}
+        city={campaign.autoAssignCity}
+        websiteQuality={campaign.autoAssignWebsiteQuality}
+        minScore={campaign.autoAssignMinScore}
+        maxScore={campaign.autoAssignMaxScore}
+        maxLeads={campaign.autoAssignMaxLeads}
         preview={preview}
       />
       <SequenceEditor campaignId={id} steps={stepViews} />

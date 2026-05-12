@@ -86,11 +86,17 @@ export async function deleteCampaign(
   return { ok: true, message: "Verwijderd." };
 }
 
-function parseCsv(raw: string): string[] {
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+function nullableTrim(raw: unknown): string | null {
+  const s = String(raw ?? "").trim();
+  return s.length > 0 ? s : null;
+}
+
+function nullableInt(raw: unknown, min: number, max: number): number | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(min, Math.min(max, Math.round(n)));
 }
 
 export async function updateAutoAssignRules(
@@ -100,24 +106,33 @@ export async function updateAutoAssignRules(
   if (!campaignId) return { ok: false, message: "Geen campaign-id." };
 
   const enabled = form.get("enabled") === "on";
-  const niches = parseCsv(String(form.get("niches") ?? ""));
-  const cities = parseCsv(String(form.get("cities") ?? ""));
-  const qualities = form
-    .getAll("websiteQualities")
-    .map((v) => String(v))
-    .filter((v) => VALID_QUALITIES.has(v));
-  const priorityRaw = String(form.get("priority") ?? "0").trim();
-  const priority = Math.max(0, Math.min(100, Number(priorityRaw) || 0));
+  const niche = nullableTrim(form.get("niche"));
+  const city = nullableTrim(form.get("city"));
+  const qualityRaw = nullableTrim(form.get("websiteQuality"));
+  const websiteQuality =
+    qualityRaw && VALID_QUALITIES.has(qualityRaw) ? qualityRaw : null;
+  const minScore = nullableInt(form.get("minScore"), 0, 100);
+  const maxScore = nullableInt(form.get("maxScore"), 0, 100);
+  const maxLeads = nullableInt(form.get("maxLeads"), 1, 1_000_000);
+
+  if (minScore !== null && maxScore !== null && minScore > maxScore) {
+    return {
+      ok: false,
+      message: `Min-score (${minScore}) > max-score (${maxScore}). Niet opgeslagen.`,
+    };
+  }
 
   const db = getDb();
   await db
     .update(campaigns)
     .set({
       autoAssignEnabled: enabled,
-      matchNiches: niches.length > 0 ? niches : null,
-      matchCities: cities.length > 0 ? cities : null,
-      matchWebsiteQualities: qualities.length > 0 ? qualities : null,
-      matchPriority: priority,
+      autoAssignNiche: niche,
+      autoAssignCity: city,
+      autoAssignWebsiteQuality: websiteQuality,
+      autoAssignMinScore: minScore,
+      autoAssignMaxScore: maxScore,
+      autoAssignMaxLeads: maxLeads,
     })
     .where(eq(campaigns.id, campaignId));
 
@@ -125,14 +140,18 @@ export async function updateAutoAssignRules(
   revalidatePath("/campaigns");
 
   const filters: string[] = [];
-  if (niches.length > 0) filters.push(`${niches.length} niches`);
-  if (cities.length > 0) filters.push(`${cities.length} steden`);
-  if (qualities.length > 0) filters.push(`${qualities.length} kwaliteits-buckets`);
-  const filterDesc = filters.length > 0 ? filters.join(", ") : "geen filters (catch-all)";
+  if (niche) filters.push(`niche=${niche}`);
+  if (city) filters.push(`city=${city}`);
+  if (websiteQuality) filters.push(`quality=${websiteQuality}`);
+  if (minScore !== null || maxScore !== null) {
+    filters.push(`score=${minScore ?? "*"}..${maxScore ?? "*"}`);
+  }
+  if (maxLeads !== null) filters.push(`max=${maxLeads}`);
+  const filterDesc = filters.length > 0 ? filters.join(", ") : "catch-all";
 
   return {
     ok: true,
-    message: `Auto-assign ${enabled ? "AAN" : "uit"} — ${filterDesc}, prio=${priority}.`,
+    message: `Auto-assign ${enabled ? "AAN" : "uit"} — ${filterDesc}.`,
   };
 }
 
