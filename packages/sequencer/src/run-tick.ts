@@ -12,7 +12,10 @@ import {
 } from "@outreach/db";
 import type { Mailer } from "@outreach/mailer";
 import { render, signUnsubscribeToken } from "@outreach/templates";
-import type { AnthropicPersonalizer } from "@outreach/ai-personalization";
+import type {
+  AnthropicPersonalizer,
+  EmailWriter,
+} from "@outreach/ai-personalization";
 import {
   preSendCheck,
   startOfDay,
@@ -70,6 +73,14 @@ export interface RunTickConfig {
    * cached value. Falls back to the heuristic on any error.
    */
   personalizer?: AnthropicPersonalizer | undefined;
+  /**
+   * Optional Claude-backed full-email writer. When provided, replaces the
+   * static step-templates: Claude schrijft per send subject + body o.b.v.
+   * business + audit + reviews + step-context. Bij elke failure (timeout,
+   * parse-error, rate-limit) valt de send terug op de sequence-template
+   * zodat één AI-storing geen sends blokkeert.
+   */
+  emailWriter?: EmailWriter | undefined;
   /**
    * Override Math.random — used by tests to make A/B variant selection
    * deterministic.
