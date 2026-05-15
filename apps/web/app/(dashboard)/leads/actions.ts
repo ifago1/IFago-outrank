@@ -10,12 +10,136 @@ import {
   getDb,
   getSetting,
 } from "@outreach/db";
+import {
+  EnrichmentService,
+  HunterClient,
+  WebsiteScraper,
+} from "@outreach/enrichment";
 import { runCompositeAudit } from "@outreach/website-quality";
 import type {
   AiAuditActionResult,
   AssignLeadsResult,
+  BulkEnrichResult,
   ContactActionResult,
 } from "./types";
+
+/**
+ * Bulk-enrich vanuit de UI: voor elke geselecteerde business
+ * (website-scrape + Hunter + MX-validate) en sla de gevonden contacts
+ * op. Niet-geselecteerde leads + leads die al een contact hebben
+ * worden overgeslagen (idempotent). Cap op 50 per call zodat de
+ * server-action niet timeout't bij grote selecties — voor meer dan
+ * dat kan de gebruiker meerdere keren klikken of de CLI runnen.
+ */
+export async function bulkEnrichLeads(
+  businessIds: string[],
+): Promise<BulkEnrichResult> {
+  const ids = [...new Set(businessIds.filter(Boolean))].slice(0, 50);
+  if (ids.length === 0) {
+    return {
+      ok: false,
+      message: "Geen leads geselecteerd.",
+      processed: 0,
+      withEmails: 0,
+      newContacts: 0,
+      skippedNoWebsite: 0,
+      failed: 0,
+    };
+  }
+
+  const db = getDb();
+
+  const rows = await db
+    .select({
+      id: businesses.id,
+      name: businesses.name,
+      websiteUrl: businesses.websiteUrl,
+    })
+    .from(businesses)
+    .where(inArray(businesses.id, ids));
+
+  const eligible = rows.filter((r) => r.websiteUrl != null);
+  const skippedNoWebsite = rows.length - eligible.length;
+
+  if (eligible.length === 0) {
+    return {
+      ok: false,
+      message: `Geen van de ${rows.length} geselecteerde leads heeft een website-URL — niets te scrapen.`,
+      processed: 0,
+      withEmails: 0,
+      newContacts: 0,
+      skippedNoWebsite,
+      failed: 0,
+    };
+  }
+
+  const hunterKey =
+    (await getSetting(db, "HUNTER_API_KEY")) ?? process.env["HUNTER_API_KEY"];
+  const service = new EnrichmentService({
+    scraper: new WebsiteScraper(),
+    hunter: hunterKey ? new HunterClient({ apiKey: hunterKey }) : undefined,
+  });
+
+  const batch = await service.enrichBatch(
+    eligible.map((b) => ({
+      businessName: b.name,
+      websiteUrl: b.websiteUrl!,
+    })),
+    { concurrency: 5 },
+  );
+
+  let withEmails = 0;
+  let newContacts = 0;
+  let failed = 0;
+
+  for (let i = 0; i < batch.length; i += 1) {
+    const b = eligible[i]!;
+    const r = batch[i]!;
+    if (r.error || r.result === null) {
+      failed += 1;
+      continue;
+    }
+    if (r.result.emails.length === 0) continue;
+    withEmails += 1;
+
+    const toInsert = r.result.emails.map((e) => ({
+      businessId: b.id,
+      email: e.email,
+      ...(e.firstName ? { firstName: e.firstName } : {}),
+      ...(e.lastName ? { lastName: e.lastName } : {}),
+      source: e.source,
+      isVerified: true,
+    }));
+
+    const inserted = await db
+      .insert(contacts)
+      .values(toInsert)
+      .onConflictDoNothing({
+        target: [contacts.businessId, contacts.email],
+      })
+      .returning({ id: contacts.id });
+    newContacts += inserted.length;
+  }
+
+  revalidatePath("/leads");
+
+  const parts: string[] = [];
+  parts.push(`${newContacts} nieuwe contact(s)`);
+  parts.push(`${withEmails}/${eligible.length} leads met emails`);
+  if (skippedNoWebsite > 0) parts.push(`${skippedNoWebsite} zonder website overgeslagen`);
+  if (failed > 0) parts.push(`${failed} faalden`);
+  if (!hunterKey) parts.push("Hunter niet actief (geen key)");
+
+  return {
+    ok: true,
+    message: parts.join(", ") + ".",
+    processed: eligible.length,
+    withEmails,
+    newContacts,
+    skippedNoWebsite,
+    failed,
+  };
+}
 
 /**
  * Assign one or more businesses to a campaign. Resolves businesses →

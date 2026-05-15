@@ -24,3 +24,18 @@ export interface AiAuditActionResult {
   /** Eén-zin samenvatting (na succes). */
   summary?: string;
 }
+
+export interface BulkEnrichResult {
+  ok: boolean;
+  message: string;
+  /** Hoeveel businesses daadwerkelijk geprocessed (had website). */
+  processed: number;
+  /** Hoeveel daarvan leverden ≥1 email op. */
+  withEmails: number;
+  /** Aantal NIEUWE contacts dat is ingevoegd (na dedupe op uniqueIndex). */
+  newContacts: number;
+  /** Businesses zonder website-URL — overgeslagen. */
+  skippedNoWebsite: number;
+  /** Enrichment-call faalde (timeout, network etc). */
+  failed: number;
+}

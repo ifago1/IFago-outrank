@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState, useTransition, type CSSProperties } from "react";
-import { assignLeadsToCampaign } from "./actions";
-import type { AssignLeadsResult } from "./types";
+import { assignLeadsToCampaign, bulkEnrichLeads } from "./actions";
+import type { AssignLeadsResult, BulkEnrichResult } from "./types";
 
 export interface LeadRow {
   businessId: string;
@@ -45,12 +45,35 @@ export function LeadsClient({
   const [bulkCampaignId, setBulkCampaignId] = useState<string>(
     campaigns[0]?.id ?? "",
   );
-  const [result, setResult] = useState<AssignLeadsResult | null>(null);
+  const [result, setResult] = useState<
+    AssignLeadsResult | BulkEnrichResult | null
+  >(null);
 
   const selectableIds = useMemo(
-    () => rows.filter((r) => r.contactCount > 0).map((r) => r.businessId),
+    () => rows.map((r) => r.businessId),
     [rows],
   );
+  // Hoeveel selectede leads kunnen daadwerkelijk worden geënricht
+  // (geen contact yet + wel een website).
+  const enrichableSelected = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      if (selected.has(r.businessId) && r.contactCount === 0 && r.websiteUrl) {
+        set.add(r.businessId);
+      }
+    }
+    return set;
+  }, [rows, selected]);
+  // Hoeveel selected leads kunnen worden toegewezen aan een campagne.
+  const assignableSelected = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      if (selected.has(r.businessId) && r.contactCount > 0) {
+        set.add(r.businessId);
+      }
+    }
+    return set;
+  }, [rows, selected]);
   const allSelected =
     selectableIds.length > 0 &&
     selectableIds.every((id) => selected.has(id));
@@ -73,12 +96,24 @@ export function LeadsClient({
   }
 
   function runBulkAssign() {
-    if (!bulkCampaignId || selected.size === 0) return;
-    const ids = [...selected];
+    if (!bulkCampaignId || assignableSelected.size === 0) return;
+    const ids = [...assignableSelected];
     startTransition(async () => {
       const r = await assignLeadsToCampaign(ids, bulkCampaignId);
       setResult(r);
       if (r.ok && (r.assigned ?? 0) > 0) {
+        setSelected(new Set());
+      }
+    });
+  }
+
+  function runBulkEnrich() {
+    if (enrichableSelected.size === 0) return;
+    const ids = [...enrichableSelected];
+    startTransition(async () => {
+      const r = await bulkEnrichLeads(ids);
+      setResult(r);
+      if (r.ok && r.newContacts > 0) {
         setSelected(new Set());
       }
     });
@@ -112,6 +147,22 @@ export function LeadsClient({
             </button>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={runBulkEnrich}
+              disabled={pending || enrichableSelected.size === 0}
+              style={primaryBtnStyle}
+              title={
+                enrichableSelected.size === 0
+                  ? "Geen leads in selectie met website + zonder contact"
+                  : `Scrape website + Hunter voor ${enrichableSelected.size} lead(s)`
+              }
+            >
+              {pending
+                ? "Enriching…"
+                : `Enrich ${enrichableSelected.size} (zoek contacts)`}
+            </button>
+            <span style={{ opacity: 0.3 }}>·</span>
             <label style={{ fontSize: "0.85rem", opacity: 0.85 }}>
               Toewijzen aan:
             </label>
@@ -130,10 +181,19 @@ export function LeadsClient({
             <button
               type="button"
               onClick={runBulkAssign}
-              disabled={pending || !bulkCampaignId}
+              disabled={
+                pending || !bulkCampaignId || assignableSelected.size === 0
+              }
               style={primaryBtnStyle}
+              title={
+                assignableSelected.size === 0
+                  ? "Geen leads met contact in selectie — enrich eerst"
+                  : ""
+              }
             >
-              {pending ? "Toevoegen…" : `Voeg ${selected.size} toe`}
+              {pending
+                ? "Toevoegen…"
+                : `Voeg ${assignableSelected.size} toe`}
             </button>
           </div>
         </div>
@@ -216,7 +276,13 @@ function LeadRowView({
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [campaignId, setCampaignId] = useState<string>(campaigns[0]?.id ?? "");
-  const canSelect = row.contactCount > 0;
+  const hasContact = row.contactCount > 0;
+  const hasWebsite = row.websiteUrl != null;
+  const checkboxTitle = hasContact
+    ? "Selecteer voor bulk-toewijzing"
+    : hasWebsite
+      ? "Geen contact — selecteer voor bulk-enrich"
+      : "Geen website + geen contact — niets te doen";
 
   function onAssign() {
     if (!campaignId) return;
@@ -234,12 +300,8 @@ function LeadRowView({
           type="checkbox"
           checked={selected}
           onChange={onToggle}
-          disabled={!canSelect}
-          title={
-            canSelect
-              ? "Selecteer voor bulk-toewijzing"
-              : "Geen contact bij deze business — run pnpm enrich"
-          }
+          disabled={!hasContact && !hasWebsite}
+          title={checkboxTitle}
         />
       </td>
       <td style={tdStyle}>
@@ -291,7 +353,7 @@ function LeadRowView({
         )}
       </td>
       <td style={tdStyle}>
-        {!canSelect ? (
+        {!hasContact ? (
           <span style={{ opacity: 0.5, fontSize: "0.8rem" }}>—</span>
         ) : campaigns.length === 0 ? (
           <span style={{ opacity: 0.5, fontSize: "0.8rem" }}>geen campagne</span>
@@ -340,7 +402,11 @@ function LeadRowView({
   );
 }
 
-function ResultPill({ result }: { result: AssignLeadsResult }) {
+function ResultPill({
+  result,
+}: {
+  result: AssignLeadsResult | BulkEnrichResult;
+}) {
   const tone = result.ok ? "ok" : "bad";
   return (
     <span style={{ ...pillStyle, ...pillTones[tone] }}>{result.message}</span>
