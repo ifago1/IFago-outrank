@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import Link from "next/link";
 import { businesses, getDb } from "@outreach/db";
 import { heatScore } from "@outreach/sequencer";
@@ -66,7 +66,7 @@ export default async function PhonePage({
     where.push(
       sql`${businesses.phoneStatus} IN ('voicemail','callback','called')`,
     );
-    where.push(sql`${businesses.phoneNextAttemptAt} > ${now}`);
+    where.push(gt(businesses.phoneNextAttemptAt, now));
   } else if (bucket === "warm") {
     where.push(eq(businesses.phoneStatus, "interested"));
   } else if (bucket === "done") {
@@ -195,6 +195,10 @@ async function getBucketCounts(
   db: ReturnType<typeof getDb>,
   now: Date,
 ): Promise<Record<Bucket, number>> {
+  // postgres-js serialisert Date niet auto in raw sql-templates,
+  // dus geef 'm als ISO-string mee. Postgres cast'd zelf naar
+  // timestamptz.
+  const nowIso = now.toISOString();
   const rows = await db
     .select({
       open: sql<number>`(SELECT count(*)::int FROM businesses b
@@ -202,7 +206,7 @@ async function getBucketCounts(
           AND (
             b.phone_status IS NULL
             OR (b.phone_status IN ('voicemail','callback','called')
-                AND b.phone_next_attempt_at <= ${now})
+                AND b.phone_next_attempt_at <= ${nowIso}::timestamptz)
           )
           AND NOT EXISTS (
             SELECT 1 FROM contacts cc
@@ -216,7 +220,7 @@ async function getBucketCounts(
       scheduled: sql<number>`(SELECT count(*)::int FROM businesses
         WHERE phone IS NOT NULL
           AND phone_status IN ('voicemail','callback','called')
-          AND phone_next_attempt_at > ${now})`,
+          AND phone_next_attempt_at > ${nowIso}::timestamptz)`,
       warm: sql<number>`(SELECT count(*)::int FROM businesses
         WHERE phone_status = 'interested')`,
       done: sql<number>`(SELECT count(*)::int FROM businesses
