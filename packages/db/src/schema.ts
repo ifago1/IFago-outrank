@@ -29,6 +29,15 @@ export const businesses = pgTable(
     personalObservationSource: text("personal_observation_source"),
     auditDetail: jsonb("audit_detail"),
     auditedAt: timestamp("audited_at", { withTimezone: true }),
+    /**
+     * Phone-call pipeline. Null = nog niet gebeld. Anders een van
+     * called / voicemail / callback / interested / not_interested /
+     * wrong_number. UI op /phone past het zicht én eventueel de
+     * lead-pipeline aan (DNC bij not_interested + wrong_number).
+     */
+    phoneStatus: text("phone_status"),
+    phoneCalledAt: timestamp("phone_called_at", { withTimezone: true }),
+    phoneNotes: text("phone_notes"),
     discoveredAt: timestamp("discovered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

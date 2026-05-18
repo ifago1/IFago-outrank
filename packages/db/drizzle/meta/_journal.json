@@ -64,6 +64,13 @@
       "when": 1715212800000,
       "tag": "0008_campaign_ai_emails",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1715299200000,
+      "tag": "0009_phone_status",
+      "breakpoints": true
     }
   ]
 }
