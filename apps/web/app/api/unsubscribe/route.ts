@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { contacts, getDb, unsubscribes } from "@outreach/db";
+import { and, eq, inArray, or } from "drizzle-orm";
+import {
+  campaignLeads,
+  contacts,
+  getDb,
+  unsubscribes,
+} from "@outreach/db";
 import { verifyUnsubscribeToken } from "@outreach/templates";
 
 export const runtime = "nodejs";
@@ -54,19 +59,48 @@ async function doUnsubscribe(req: Request, method: "GET" | "POST") {
   }
 
   const db = getDb();
+  const now = new Date();
+
   await db
     .insert(unsubscribes)
     .values({
       email: result.email,
-      unsubscribedAt: new Date(),
+      unsubscribedAt: now,
       reason: "user_clicked",
     })
     .onConflictDoNothing({ target: unsubscribes.email });
 
-  await db
+  // Markeer alle contact-rijen met dit e-mailadres als DNC. Werkt
+  // cross-business, want hetzelfde adres bij meerdere businesses moet
+  // ook overal blokkeren.
+  const dncRows = await db
     .update(contacts)
     .set({ doNotContact: true })
-    .where(eq(contacts.email, result.email));
+    .where(eq(contacts.email, result.email))
+    .returning({ id: contacts.id });
+
+  // Trek de bijbehorende campaign_leads uit de actieve queue zodat de
+  // sequencer ze ook in deze tick al niet meer ophaalt (i.p.v. te
+  // wachten op preSendCheck.contactDoNotContact bij de send).
+  const contactIds = dncRows.map((r) => r.id);
+  if (contactIds.length > 0) {
+    await db
+      .update(campaignLeads)
+      .set({
+        status: "unsubscribed",
+        nextSendAt: null,
+        lastEventAt: now,
+      })
+      .where(
+        and(
+          inArray(campaignLeads.contactId, contactIds),
+          or(
+            eq(campaignLeads.status, "queued"),
+            eq(campaignLeads.status, "sent"),
+          ),
+        ),
+      );
+  }
 
   if (method === "POST") return NextResponse.json({ ok: true });
   return html(

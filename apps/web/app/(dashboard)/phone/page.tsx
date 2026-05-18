@@ -42,18 +42,21 @@ export default async function PhonePage({
 
   if (bucket === "open") {
     where.push(isNull(businesses.phoneStatus));
-    // Niet al via mail in een actieve campagne
-    where.push(sql`NOT EXISTS (
-      SELECT 1 FROM campaign_leads cl
-      INNER JOIN contacts ct ON ct.id = cl.contact_id
-      WHERE ct.business_id = businesses.id
-        AND cl.status IN ('queued', 'sent')
-    )`);
-    // Geen werkende e-mail-route
+    // Geen DNC-signaal op enige contact van deze business. Eén
+    // unsubscribe of handmatige DNC sluit de business ook af voor
+    // telefoon — als iemand zegt "geen mails" gaan we ze ook niet
+    // bellen.
     where.push(sql`NOT EXISTS (
       SELECT 1 FROM contacts cc
       WHERE cc.business_id = businesses.id
-        AND cc.do_not_contact = false
+        AND cc.do_not_contact = true
+    )`);
+    // Ook expliciete unsubscribe-rij dekt het scenario waar het
+    // contact verwijderd is maar de afmelding bewaard. Tweede vangnet.
+    where.push(sql`NOT EXISTS (
+      SELECT 1 FROM unsubscribes u
+      JOIN contacts cc2 ON LOWER(cc2.email) = LOWER(u.email)
+      WHERE cc2.business_id = businesses.id
     )`);
   } else if (bucket === "followup") {
     where.push(sql`${businesses.phoneStatus} IN ('voicemail', 'callback', 'called')`);
@@ -167,13 +170,13 @@ async function getBucketCounts(
         WHERE b.phone IS NOT NULL
           AND b.phone_status IS NULL
           AND NOT EXISTS (
-            SELECT 1 FROM campaign_leads cl
-            INNER JOIN contacts ct ON ct.id = cl.contact_id
-            WHERE ct.business_id = b.id AND cl.status IN ('queued','sent')
+            SELECT 1 FROM contacts cc
+            WHERE cc.business_id = b.id AND cc.do_not_contact = true
           )
           AND NOT EXISTS (
-            SELECT 1 FROM contacts cc
-            WHERE cc.business_id = b.id AND cc.do_not_contact = false
+            SELECT 1 FROM unsubscribes u
+            JOIN contacts cc2 ON LOWER(cc2.email) = LOWER(u.email)
+            WHERE cc2.business_id = b.id
           ))`,
       followup: sql<number>`(SELECT count(*)::int FROM businesses
         WHERE phone_status IN ('voicemail','callback','called'))`,
