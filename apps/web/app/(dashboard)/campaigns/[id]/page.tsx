@@ -63,6 +63,7 @@ export default async function CampaignDetailPage({
       <AiModeEditor
         campaignId={id}
         aiEnabled={campaign.aiGenerateEmails}
+        warmFollowupTarget={campaign.warmFollowupTarget}
         globalAiEnabled={globalAiEnabled}
         hasAnthropicKey={hasAnthropicKey}
       />

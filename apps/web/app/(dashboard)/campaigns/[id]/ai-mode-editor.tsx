@@ -7,11 +7,13 @@ import type { CampaignActionResult } from "../types";
 export function AiModeEditor({
   campaignId,
   aiEnabled,
+  warmFollowupTarget,
   globalAiEnabled,
   hasAnthropicKey,
 }: {
   campaignId: string;
   aiEnabled: boolean;
+  warmFollowupTarget: boolean;
   /** Toont een waarschuwing als de campagne AI aan zet maar het platform AI uit. */
   globalAiEnabled: boolean;
   hasAnthropicKey: boolean;
@@ -51,6 +53,22 @@ export function AiModeEditor({
           />
           AI schrijft elke mail apart (i.p.v. de sequence-templates)
         </label>
+
+        <label style={{ ...labelStyle, marginTop: "0.75rem" }}>
+          <input
+            type="checkbox"
+            name="warmFollowupTarget"
+            defaultChecked={warmFollowupTarget}
+            style={{ marginRight: "0.5rem" }}
+          />
+          Warm-followup doelcampagne (na telefonische &ldquo;interesse&rdquo;)
+        </label>
+        <p style={{ ...descStyle, marginTop: "0.25rem", marginBottom: 0 }}>
+          Wanneer aan: leads die je in de Bellen-tab op &ldquo;interesse&rdquo;
+          markeert worden automatisch in deze campagne gezet. Markeer
+          slechts één campagne als doel — anders wint de eerste die het
+          systeem vindt.
+        </p>
 
         {showWarning ? (
           <p style={warnStyle}>

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import {
+  campaignLeads,
   contacts,
   emailsSent,
   getDb,
   getSetting,
+  logLeadEvent,
   unsubscribes,
 } from "@outreach/db";
 import { eq } from "drizzle-orm";
@@ -97,11 +99,37 @@ async function handleInbound(
     return NextResponse.json({ ok: true, matched: false });
   }
   await markReplied(db, match.campaignLeadId, now);
+
+  const businessId = await businessIdForCampaignLead(db, match.campaignLeadId);
+  if (businessId) {
+    await logLeadEvent(db, {
+      businessId,
+      type: "mail_replied",
+      source: "mail",
+      payload: {
+        campaignLeadId: match.campaignLeadId,
+        subject: payload.Subject ?? null,
+      },
+    });
+  }
   return NextResponse.json({
     ok: true,
     matched: true,
     campaignLeadId: match.campaignLeadId,
   });
+}
+
+async function businessIdForCampaignLead(
+  db: ReturnType<typeof getDb>,
+  campaignLeadId: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ businessId: contacts.businessId })
+    .from(campaignLeads)
+    .innerJoin(contacts, eq(contacts.id, campaignLeads.contactId))
+    .where(eq(campaignLeads.id, campaignLeadId))
+    .limit(1);
+  return rows[0]?.businessId ?? null;
 }
 
 async function handleBounce(
@@ -127,6 +155,22 @@ async function handleBounce(
   }
 
   await markBounced(db, found.id, found.campaignLeadId, now);
+
+  const bounceBusinessId = await businessIdForCampaignLead(
+    db,
+    found.campaignLeadId,
+  );
+  if (bounceBusinessId) {
+    await logLeadEvent(db, {
+      businessId: bounceBusinessId,
+      type: "mail_bounced",
+      source: "mail",
+      payload: {
+        bounceType: payload.Type ?? null,
+        email: payload.Email ?? null,
+      },
+    });
+  }
 
   // Hard bounce or marked Inactive → never email this address again
   const isHard =

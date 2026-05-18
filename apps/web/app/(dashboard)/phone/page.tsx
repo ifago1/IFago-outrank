@@ -1,13 +1,14 @@
-import { eq, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import Link from "next/link";
 import { businesses, getDb } from "@outreach/db";
+import { heatScore } from "@outreach/sequencer";
 import { PageHeader } from "../_ui";
 import { PhoneRow } from "./phone-row";
 import type { PhoneLeadRow, PhoneStatus } from "./types";
 
 export const dynamic = "force-dynamic";
 
-type Bucket = "open" | "followup" | "warm" | "done" | "all";
+type Bucket = "open" | "scheduled" | "warm" | "done" | "all";
 
 interface SearchParams {
   niche?: string;
@@ -17,13 +18,14 @@ interface SearchParams {
 
 /**
  * Bellen-tab buckets:
- *   - open      → nog niet gebeld of expliciet gewist
- *   - followup  → voicemail / callback
- *   - warm      → interested
- *   - done      → not_interested / wrong_number (alleen voor audit;
- *                 wrong_number heeft phone gewist dus die zie je
- *                 alleen in audit-view)
- *   - all       → alles, ongeacht status
+ *   open       → nooit gebeld OF cadence-due (voicemail/callback/called
+ *                met next_attempt_at <= now). Geen DNC-signalen.
+ *   scheduled  → cadence-future (next_attempt_at > now). Read-only,
+ *                wachtend op de juiste datum.
+ *   warm       → interested. Volgende stap: contact via mail-warm-
+ *                followup of bellen.
+ *   done       → not_interested / wrong_number.
+ *   all        → alles met telefoon.
  */
 export default async function PhonePage({
   searchParams,
@@ -33,33 +35,38 @@ export default async function PhonePage({
   const params = await searchParams;
   const bucket: Bucket = params.bucket ?? "open";
   const db = getDb();
+  const now = new Date();
 
   const where: SQL[] = [];
-
   if (bucket !== "done") {
     where.push(isNotNull(businesses.phone));
   }
 
   if (bucket === "open") {
-    where.push(isNull(businesses.phoneStatus));
-    // Geen DNC-signaal op enige contact van deze business. Eén
-    // unsubscribe of handmatige DNC sluit de business ook af voor
-    // telefoon — als iemand zegt "geen mails" gaan we ze ook niet
-    // bellen.
+    // Nooit gebeld OF cadence-due
+    where.push(
+      or(
+        isNull(businesses.phoneStatus),
+        and(
+          sql`${businesses.phoneStatus} IN ('voicemail','callback','called')`,
+          lte(businesses.phoneNextAttemptAt, now),
+        ),
+      )!,
+    );
     where.push(sql`NOT EXISTS (
       SELECT 1 FROM contacts cc
-      WHERE cc.business_id = businesses.id
-        AND cc.do_not_contact = true
+      WHERE cc.business_id = businesses.id AND cc.do_not_contact = true
     )`);
-    // Ook expliciete unsubscribe-rij dekt het scenario waar het
-    // contact verwijderd is maar de afmelding bewaard. Tweede vangnet.
     where.push(sql`NOT EXISTS (
       SELECT 1 FROM unsubscribes u
       JOIN contacts cc2 ON LOWER(cc2.email) = LOWER(u.email)
       WHERE cc2.business_id = businesses.id
     )`);
-  } else if (bucket === "followup") {
-    where.push(sql`${businesses.phoneStatus} IN ('voicemail', 'callback', 'called')`);
+  } else if (bucket === "scheduled") {
+    where.push(
+      sql`${businesses.phoneStatus} IN ('voicemail','callback','called')`,
+    );
+    where.push(sql`${businesses.phoneNextAttemptAt} > ${now}`);
   } else if (bucket === "warm") {
     where.push(eq(businesses.phoneStatus, "interested"));
   } else if (bucket === "done") {
@@ -69,7 +76,7 @@ export default async function PhonePage({
   if (params.niche) where.push(eq(businesses.category, params.niche));
   if (params.city) where.push(eq(businesses.city, params.city));
 
-  const rows = await db
+  const rawRows = await db
     .select({
       businessId: businesses.id,
       name: businesses.name,
@@ -83,24 +90,22 @@ export default async function PhonePage({
       phoneStatus: businesses.phoneStatus,
       phoneCalledAt: businesses.phoneCalledAt,
       phoneNotes: businesses.phoneNotes,
+      phoneNextAttemptAt: businesses.phoneNextAttemptAt,
+      phoneAttempts: businesses.phoneAttempts,
     })
     .from(businesses)
     .where(where.length ? sql.join(where, sql` AND `) : sql`true`)
     .orderBy(
-      bucket === "open"
-        ? sql`CASE ${businesses.websiteQuality}
-            WHEN 'outdated' THEN 1
-            WHEN 'decent' THEN 3
-            WHEN 'good' THEN 4
-            ELSE 2
-          END ASC`
+      bucket === "scheduled"
+        ? sql`${businesses.phoneNextAttemptAt} ASC NULLS LAST`
         : sql`${businesses.phoneCalledAt} DESC NULLS LAST`,
       sql`${businesses.googleRating} DESC NULLS LAST`,
-      sql`${businesses.reviewsCount} DESC NULLS LAST`,
     )
-    .limit(200);
+    .limit(300);
 
-  const leadRows: PhoneLeadRow[] = rows.map((r) => ({
+  // Heat-score per row + sortering. Op de Open-tab winnen warm leads
+  // bovenaan; op andere tabs gaat de DB-order voor.
+  const leadRows: PhoneLeadRow[] = rawRows.map((r) => ({
     businessId: r.businessId,
     name: r.name,
     city: r.city,
@@ -111,33 +116,52 @@ export default async function PhonePage({
     rating: r.rating != null ? Number(r.rating) : null,
     reviewsCount: r.reviewsCount,
     phoneStatus: (r.phoneStatus ?? null) as PhoneStatus | null,
-    phoneCalledAt:
-      r.phoneCalledAt instanceof Date
-        ? r.phoneCalledAt.toISOString()
-        : (r.phoneCalledAt as unknown as string | null),
+    phoneCalledAt: toIso(r.phoneCalledAt),
     phoneNotes: r.phoneNotes,
+    phoneNextAttemptAt: toIso(r.phoneNextAttemptAt),
+    phoneAttempts: r.phoneAttempts ?? 0,
+    heat: heatScore(
+      {
+        phoneStatus: r.phoneStatus,
+        phoneNextAttemptAt: r.phoneNextAttemptAt as unknown as Date | null,
+        websiteUrl: r.websiteUrl,
+        websiteQuality: r.websiteQuality,
+        rating: r.rating != null ? Number(r.rating) : null,
+        reviewsCount: r.reviewsCount,
+        lastInteractionAt: r.phoneCalledAt as unknown as Date | null,
+      },
+      now,
+    ),
   }));
 
-  // Counts per bucket voor de tab-bar
-  const counts = await getBucketCounts(db);
+  // Open/warm primair op heat. Andere buckets primair op de DB-order.
+  if (bucket === "open" || bucket === "warm") {
+    leadRows.sort((a, b) => b.heat - a.heat);
+  }
+
+  // Limit naar 200 in de UI om de tabel hanteerbaar te houden
+  const visible = leadRows.slice(0, 200);
+
+  const counts = await getBucketCounts(db, now);
 
   return (
     <>
       <PageHeader
         title="Bellen"
-        subtitle={subtitleFor(bucket, leadRows.length)}
+        subtitle={subtitleFor(bucket, visible.length)}
       />
 
       <BucketTabs current={bucket} counts={counts} />
       <FilterBar params={params} bucket={bucket} />
 
-      {leadRows.length === 0 ? (
+      {visible.length === 0 ? (
         <p style={{ opacity: 0.6 }}>{emptyMessageFor(bucket)}</p>
       ) : (
         <div style={tableWrapStyle}>
           <table style={tableStyle}>
             <thead>
               <tr>
+                <th style={thStyle}>Heat</th>
                 <th style={thStyle}>Business</th>
                 <th style={thStyle}>Stad</th>
                 <th style={thStyle}>Categorie</th>
@@ -150,7 +174,7 @@ export default async function PhonePage({
               </tr>
             </thead>
             <tbody>
-              {leadRows.map((r) => (
+              {visible.map((r) => (
                 <PhoneRow key={r.businessId} row={r} />
               ))}
             </tbody>
@@ -161,14 +185,25 @@ export default async function PhonePage({
   );
 }
 
+function toIso(v: unknown): string | null {
+  if (!v) return null;
+  if (v instanceof Date) return v.toISOString();
+  return v as string;
+}
+
 async function getBucketCounts(
   db: ReturnType<typeof getDb>,
+  now: Date,
 ): Promise<Record<Bucket, number>> {
   const rows = await db
     .select({
       open: sql<number>`(SELECT count(*)::int FROM businesses b
         WHERE b.phone IS NOT NULL
-          AND b.phone_status IS NULL
+          AND (
+            b.phone_status IS NULL
+            OR (b.phone_status IN ('voicemail','callback','called')
+                AND b.phone_next_attempt_at <= ${now})
+          )
           AND NOT EXISTS (
             SELECT 1 FROM contacts cc
             WHERE cc.business_id = b.id AND cc.do_not_contact = true
@@ -178,8 +213,10 @@ async function getBucketCounts(
             JOIN contacts cc2 ON LOWER(cc2.email) = LOWER(u.email)
             WHERE cc2.business_id = b.id
           ))`,
-      followup: sql<number>`(SELECT count(*)::int FROM businesses
-        WHERE phone_status IN ('voicemail','callback','called'))`,
+      scheduled: sql<number>`(SELECT count(*)::int FROM businesses
+        WHERE phone IS NOT NULL
+          AND phone_status IN ('voicemail','callback','called')
+          AND phone_next_attempt_at > ${now})`,
       warm: sql<number>`(SELECT count(*)::int FROM businesses
         WHERE phone_status = 'interested')`,
       done: sql<number>`(SELECT count(*)::int FROM businesses
@@ -189,34 +226,36 @@ async function getBucketCounts(
   const r = rows[0]!;
   return {
     open: r.open,
-    followup: r.followup,
+    scheduled: r.scheduled,
     warm: r.warm,
     done: r.done,
-    all: r.open + r.followup + r.warm + r.done,
+    all: r.open + r.scheduled + r.warm + r.done,
   };
 }
 
 function subtitleFor(bucket: Bucket, n: number): string {
-  if (bucket === "open") {
-    return `${n} leads om nu te bellen. Slechte sites + hoogste rating bovenaan. Markeer met de status-knop rechts.`;
-  }
-  if (bucket === "followup") return `${n} leads in follow-up (voicemail / callback / generiek gebeld).`;
-  if (bucket === "warm") return `${n} warme leads — interesse getoond. Tijd om af te sluiten.`;
+  if (bucket === "open")
+    return `${n} leads klaar om nu te bellen — gesorteerd op heat (warmste eerst).`;
+  if (bucket === "scheduled")
+    return `${n} leads ingepland voor later. Verschijnen automatisch in Open op de juiste datum.`;
+  if (bucket === "warm")
+    return `${n} warme leads — interesse getoond. Tijd om af te sluiten.`;
   if (bucket === "done") return `${n} afgehandelde leads. Read-only audit.`;
   return `${n} leads totaal`;
 }
 
 function emptyMessageFor(bucket: Bucket): string {
-  if (bucket === "open") return "Geen open leads — alles is gebeld of zit in een mail-campagne.";
-  if (bucket === "followup") return "Geen leads in follow-up.";
-  if (bucket === "warm") return "Geen warme leads (nog) — markeer een gesprek als 'interesse'.";
+  if (bucket === "open")
+    return "Geen leads klaar om te bellen — alles is afgehandeld of ingepland.";
+  if (bucket === "scheduled") return "Geen leads ingepland.";
+  if (bucket === "warm") return "Geen warme leads (nog). Markeer een gesprek als 'interesse'.";
   if (bucket === "done") return "Nog niemand afgehandeld.";
   return "Geen leads gevonden.";
 }
 
 const BUCKETS: { key: Bucket; label: string }[] = [
   { key: "open", label: "Open" },
-  { key: "followup", label: "Follow-up" },
+  { key: "scheduled", label: "Gepland" },
   { key: "warm", label: "Interesse" },
   { key: "done", label: "Afgehandeld" },
   { key: "all", label: "Alles" },
@@ -237,10 +276,7 @@ function BucketTabs({
           <Link
             key={b.key}
             href={`/phone?bucket=${b.key}`}
-            style={{
-              ...tabStyle,
-              ...(active ? tabActiveStyle : {}),
-            }}
+            style={{ ...tabStyle, ...(active ? tabActiveStyle : {}) }}
           >
             {b.label}
             <span style={tabCountStyle}>{counts[b.key]}</span>
@@ -285,14 +321,9 @@ function FilterBar({
         defaultValue={params.city ?? ""}
         style={inputStyle}
       />
-      <button type="submit" style={btnStyle}>
-        Filter
-      </button>
+      <button type="submit" style={btnStyle}>Filter</button>
       {params.niche || params.city ? (
-        <Link
-          href={`/phone?bucket=${bucket}`}
-          style={{ color: "#7ab8ff", fontSize: "0.85rem" }}
-        >
+        <Link href={`/phone?bucket=${bucket}`} style={{ color: "#7ab8ff", fontSize: "0.85rem" }}>
           Wis filter
         </Link>
       ) : null}
@@ -370,4 +401,3 @@ const btnStyle = {
   fontWeight: 500,
   cursor: "pointer",
 };
-

@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -8,11 +8,13 @@ import {
   contacts,
   emailsSent,
   getDb,
+  leadEvents,
 } from "@outreach/db";
 import { PageHeader, Pill } from "../../_ui";
 import { LeadDetailClient, type ContactView, type CampaignMembership } from "./lead-detail-client";
 import { AuditPanel, type AuditDetailView } from "./audit-panel";
 import { ResearchPanel, type PlacesSocialUrls } from "./research-panel";
+import { Timeline, type TimelineEventView } from "./timeline";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +91,24 @@ export default async function LeadDetailPage({
         ? m.nextSendAt.toISOString()
         : (m.nextSendAt as unknown as string | null),
     sentCount: m.sentCount,
+  }));
+
+  const eventRows = await db
+    .select()
+    .from(leadEvents)
+    .where(eq(leadEvents.businessId, businessId))
+    .orderBy(desc(leadEvents.occurredAt))
+    .limit(50);
+
+  const timelineEvents: TimelineEventView[] = eventRows.map((e) => ({
+    id: e.id,
+    type: e.type,
+    source: e.source,
+    occurredAt:
+      e.occurredAt instanceof Date
+        ? e.occurredAt.toISOString()
+        : (e.occurredAt as unknown as string),
+    payload: (e.payload as Record<string, unknown> | null) ?? null,
   }));
 
   const lastSent = contactRows.length
@@ -171,6 +191,8 @@ export default async function LeadDetailPage({
         phone={business.phone}
         social={extractSocialUrls(business.rawPlacesData)}
       />
+
+      <Timeline events={timelineEvents} />
 
       {lastSent.length > 0 ? (
         <section style={sectionStyle}>

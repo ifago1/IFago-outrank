@@ -5,6 +5,8 @@ import {
   campaigns,
   contacts,
   emailsSent,
+  leadEvents,
+  logLeadEvent,
   sequenceStepVariants,
   sequenceSteps,
   unsubscribes,
@@ -303,7 +305,7 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
     let body: string;
     const ai =
       cfg.emailWriter && row.campaignAiGenerateEmails
-        ? await tryGenerateEmail(cfg.emailWriter, row, stepDef.stepOrder)
+        ? await tryGenerateEmail(cfg.emailWriter, cfg.db, row, stepDef.stepOrder)
         : null;
     if (ai) {
       // AI body ends with {{sender_name}} per the prompt; append the
@@ -355,6 +357,20 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
         subject,
         body,
         messageId: result.messageId,
+      });
+
+      await logLeadEvent(cfg.db, {
+        businessId: row.businessId,
+        type: "mail_sent",
+        source: "mail",
+        payload: {
+          stepOrder: stepDef.stepOrder,
+          subject,
+          messageId: result.messageId,
+          campaignId: row.campaignId,
+          variantId: variant?.id ?? null,
+          aiGenerated: ai !== null,
+        },
       });
 
       const nextDef = await loadNextStep(
@@ -636,12 +652,14 @@ async function resolveObservation(
  */
 async function tryGenerateEmail(
   writer: EmailWriter,
+  db: Db,
   row: DueRow,
   stepOrder: number,
 ): Promise<{ subject: string; body: string } | null> {
   try {
     const reviewSnippets = extractReviewSnippets(row.businessRawData);
     const audit = parseAuditDetail(row.businessAuditDetail);
+    const callContext = await fetchCallContext(db, row.businessId);
     const result = await writer.generate({
       businessName: row.businessName,
       niche: row.campaignNiche,
@@ -655,6 +673,7 @@ async function tryGenerateEmail(
       auditSummary: audit.summary,
       auditWeaknesses: audit.weaknesses,
       stepOrder,
+      ...(callContext ? { callContext } : {}),
     });
     return { subject: result.subject, body: result.body };
   } catch (err) {
@@ -664,6 +683,54 @@ async function tryGenerateEmail(
     );
     return null;
   }
+}
+
+/**
+ * Pakt de meest recente phone_status event voor deze business, indien
+ * binnen de laatste 90 dagen. Returnt undefined als er geen relevant
+ * gesprek is — dan blijft de mail een normale cold-mail.
+ */
+async function fetchCallContext(
+  db: Db,
+  businessId: string,
+): Promise<{ status: string; calledAt?: string; notes?: string } | undefined> {
+  const rows = await db
+    .select({
+      payload: leadEvents.payload,
+      occurredAt: leadEvents.occurredAt,
+    })
+    .from(leadEvents)
+    .where(
+      and(
+        eq(leadEvents.businessId, businessId),
+        eq(leadEvents.type, "phone_status"),
+      ),
+    )
+    .orderBy(sql`${leadEvents.occurredAt} DESC`)
+    .limit(1);
+  const ev = rows[0];
+  if (!ev) return undefined;
+  const p = ev.payload as { status?: string; notes?: string } | null;
+  if (!p?.status) return undefined;
+  // Negeer afsluitende statussen — daar willen we sowieso geen mail
+  // meer naartoe sturen (de DNC-check vangt 'm op).
+  if (p.status === "not_interested" || p.status === "wrong_number") {
+    return undefined;
+  }
+  const ageMs =
+    Date.now() -
+    (ev.occurredAt instanceof Date
+      ? ev.occurredAt.getTime()
+      : new Date(ev.occurredAt as unknown as string).getTime());
+  if (ageMs > 90 * 24 * 60 * 60 * 1000) return undefined;
+  return {
+    status: p.status,
+    calledAt:
+      ev.occurredAt instanceof Date
+        ? ev.occurredAt.toISOString()
+        : (ev.occurredAt as unknown as string),
+    ...(p.notes ? { notes: p.notes } : {}),
+  };
 }
 
 function parseWebsiteQuality(

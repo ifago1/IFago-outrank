@@ -46,6 +46,12 @@ Audit-haakjes (alleen step 1):
 - Bij audit AI-weaknesses: pak één concrete (bv. "geen duidelijke call-to-action", "kleine letters op mobiel") en noem 'm.
 - Bij goede site (good): focus dan op groei/zichtbaarheid, niet op kwaliteit.
 
+Telefonische follow-up (wanneer "Telefonische follow-up context" in de input staat):
+- Begin de body met "Hi {{first_name}}," en verwijs in de eerste zin naar het telefoongesprek. Voorbeeld: "fijn dat we elkaar net spraken — zoals besproken stuur ik je hierbij een korte uitwerking."
+- Gebruik de notitie als concrete haak: refereer aan wat de lead heeft gezegd. Niet letterlijk citeren, wel een herkenbare draad pakken.
+- Toon: vriendelijk-zakelijk, voortzettend op het gesprek. Geen nieuwe cold-pitch.
+- Houd het kort: 3-5 zinnen + groet. Het belmoment heeft de relatie al opgebouwd.
+
 ==============
 OUTPUT FORMAT
 ==============
@@ -229,6 +235,21 @@ export interface EmailWriterInput {
 
   /** Welke step in de sequence: 1, 2, of 3. */
   stepOrder: number;
+
+  /**
+   * Optionele context uit een eerder telefoongesprek. Bij gezet wordt
+   * de mail expliciet als follow-up op het bellen geschreven en mag de
+   * AI er concreet aan refereren ("zoals besproken, ..."). Anders
+   * blijft het een standaard cold-mail.
+   */
+  callContext?: {
+    /** "interested" / "voicemail" / "callback" enz. */
+    status: string;
+    /** Datum van het laatste belmoment, ISO-string. */
+    calledAt?: string;
+    /** Vrije tekst van de gebruiker over het gesprek. */
+    notes?: string;
+  };
 }
 
 export interface EmailWriterResult {
@@ -337,6 +358,21 @@ export function buildEmailUserPrompt(input: EmailWriterInput): string {
       .map((s) => `- "${s}"`)
       .join("\n");
     parts.push(`Reviews:\n${trimmed}`);
+  }
+  if (input.callContext) {
+    const lines: string[] = [];
+    lines.push(`Status: ${input.callContext.status}`);
+    if (input.callContext.calledAt) {
+      lines.push(`Gebeld op: ${input.callContext.calledAt}`);
+    }
+    if (input.callContext.notes) {
+      const cleaned = input.callContext.notes
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 400);
+      lines.push(`Notitie van het gesprek: "${cleaned}"`);
+    }
+    parts.push(`Telefonische follow-up context:\n${lines.join("\n")}`);
   }
   parts.push(`Step: ${input.stepOrder}`);
   return parts.join("\n");

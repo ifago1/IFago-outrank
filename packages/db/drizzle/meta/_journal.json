@@ -71,6 +71,13 @@
       "when": 1715299200000,
       "tag": "0009_phone_status",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1715385600000,
+      "tag": "0010_phone_pipeline",
+      "breakpoints": true
     }
   ]
 }

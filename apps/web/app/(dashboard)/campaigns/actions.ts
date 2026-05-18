@@ -161,22 +161,32 @@ export async function updateAiMode(
 ): Promise<CampaignActionResult> {
   if (!campaignId) return { ok: false, message: "Geen campaign-id." };
   const aiEnabled = form.get("aiEnabled") === "on";
+  const warmTarget = form.get("warmFollowupTarget") === "on";
 
   const db = getDb();
+  // Slechts één campagne mag de warm-target zijn: clear vóór we deze
+  // op true zetten zodat we 'm impliciet de winnaar maken.
+  if (warmTarget) {
+    await db
+      .update(campaigns)
+      .set({ warmFollowupTarget: false })
+      .where(eq(campaigns.warmFollowupTarget, true));
+  }
   await db
     .update(campaigns)
-    .set({ aiGenerateEmails: aiEnabled })
+    .set({
+      aiGenerateEmails: aiEnabled,
+      warmFollowupTarget: warmTarget,
+    })
     .where(eq(campaigns.id, campaignId));
 
   revalidatePath(`/campaigns/${campaignId}`);
   revalidatePath("/campaigns");
 
-  return {
-    ok: true,
-    message: aiEnabled
-      ? "AI-mailgeneratie aan — vanaf de volgende tick schrijft Claude de mails."
-      : "Terug naar sequence-templates voor deze campagne.",
-  };
+  const parts: string[] = [];
+  parts.push(aiEnabled ? "AI-mailgeneratie aan" : "templates");
+  if (warmTarget) parts.push("warm-followup target");
+  return { ok: true, message: `${parts.join(" · ")}.` };
 }
 
 export async function updateSequenceStep(

@@ -51,3 +51,6 @@ export type {
   AutoAssignResult,
   RunAutoAssignOptions,
 } from "./auto-assign.js";
+
+export { heatScore } from "./heat-score.js";
+export type { HeatInput } from "./heat-score.js";

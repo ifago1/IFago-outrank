@@ -27,6 +27,9 @@ export interface PhoneLeadRow {
   phoneStatus: PhoneStatus | null;
   phoneCalledAt: string | null;
   phoneNotes: string | null;
+  phoneNextAttemptAt: string | null;
+  phoneAttempts: number;
+  heat: number;
 }
 
 export const STATUS_META: Record<

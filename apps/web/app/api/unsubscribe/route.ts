@@ -4,6 +4,7 @@ import {
   campaignLeads,
   contacts,
   getDb,
+  logLeadEvent,
   unsubscribes,
 } from "@outreach/db";
 import { verifyUnsubscribeToken } from "@outreach/templates";
@@ -77,7 +78,20 @@ async function doUnsubscribe(req: Request, method: "GET" | "POST") {
     .update(contacts)
     .set({ doNotContact: true })
     .where(eq(contacts.email, result.email))
-    .returning({ id: contacts.id });
+    .returning({ id: contacts.id, businessId: contacts.businessId });
+
+  // Log unsubscribe-event per business waar dit e-mailadres aan hangt.
+  const seenBusinessIds = new Set<string>();
+  for (const r of dncRows) {
+    if (seenBusinessIds.has(r.businessId)) continue;
+    seenBusinessIds.add(r.businessId);
+    await logLeadEvent(db, {
+      businessId: r.businessId,
+      type: "unsubscribed",
+      source: "mail",
+      payload: { email: result.email },
+    });
+  }
 
   // Trek de bijbehorende campaign_leads uit de actieve queue zodat de
   // sequencer ze ook in deze tick al niet meer ophaalt (i.p.v. te

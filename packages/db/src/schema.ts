@@ -38,6 +38,15 @@ export const businesses = pgTable(
     phoneStatus: text("phone_status"),
     phoneCalledAt: timestamp("phone_called_at", { withTimezone: true }),
     phoneNotes: text("phone_notes"),
+    /**
+     * Wanneer deze lead weer in de Open-bel-bucket mag verschijnen.
+     * Cadence: voicemail → +3 werkdagen, callback → user-defined
+     * datum, called (generic) → +7 dagen. Null = nooit gebeld of
+     * helemaal afgehandeld.
+     */
+    phoneNextAttemptAt: timestamp("phone_next_attempt_at", { withTimezone: true }),
+    /** Hoeveel bel-pogingen er al zijn gelogd. Default 0. */
+    phoneAttempts: integer("phone_attempts").notNull().default(0),
     discoveredAt: timestamp("discovered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -102,6 +111,14 @@ export const campaigns = pgTable("campaigns", {
    * + reviews. Bij failure terugval op sequence-template.
    */
   aiGenerateEmails: boolean("ai_generate_emails").notNull().default(false),
+  /**
+   * Wanneer aan: leads die telefonisch "interesse" hebben aangegeven
+   * worden automatisch in deze campagne gezet. De first-step prompt
+   * krijgt de bel-notitie als context (zodat AI er concreet aan kan
+   * refereren). Slechts één campagne mag dit aan hebben — UI zorgt
+   * voor uniciteit.
+   */
+  warmFollowupTarget: boolean("warm_followup_target").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -173,6 +190,34 @@ export const emailsSent = pgTable("emails_sent", {
   openedAt: timestamp("opened_at", { withTimezone: true }),
   repliedAt: timestamp("replied_at", { withTimezone: true }),
   bounced: boolean("bounced").notNull().default(false),
+});
+
+/**
+ * Append-only event-stream per business. Voedt de /leads/<id>
+ * timeline + later analytics. Voorbeeld-types:
+ *   mail_sent         (payload: { stepOrder, subject, messageId })
+ *   mail_opened       (payload: { stepOrder })
+ *   mail_replied      (payload: { stepOrder, classification?, summary? })
+ *   mail_bounced      (payload: { stepOrder })
+ *   phone_status      (payload: { status, notes, nextAttemptAt })
+ *   unsubscribed      (payload: { email })
+ *   audit_completed   (payload: { bucket, htmlScore, aiScore })
+ *   auto_assigned     (payload: { campaignId, reason })
+ */
+export const leadEvents = pgTable("lead_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessId: uuid("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "cascade" }),
+  /** Event-type, zie comment hierboven. */
+  type: text("type").notNull(),
+  /** "mail" / "phone" / "system" / "audit" — voor groepering in UI. */
+  source: text("source").notNull(),
+  /** Optionele structured data. JSON-serialisable. */
+  payload: jsonb("payload"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 /**
