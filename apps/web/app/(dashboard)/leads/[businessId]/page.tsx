@@ -111,31 +111,33 @@ export default async function LeadDetailPage({
     payload: (e.payload as Record<string, unknown> | null) ?? null,
   }));
 
-  const lastSent = contactRows.length
-    ? await db
-        .select({
-          id: emailsSent.id,
-          sentAt: emailsSent.sentAt,
-          subject: emailsSent.subject,
-          bounced: emailsSent.bounced,
-          openedAt: emailsSent.openedAt,
-          repliedAt: emailsSent.repliedAt,
-          stepOrder: emailsSent.stepOrder,
-          aiGenerated: emailsSent.aiGenerated,
-          contactEmail: contacts.email,
-          campaignName: campaigns.name,
-        })
-        .from(emailsSent)
-        .innerJoin(
-          campaignLeads,
-          eq(campaignLeads.id, emailsSent.campaignLeadId),
-        )
-        .innerJoin(contacts, eq(contacts.id, campaignLeads.contactId))
-        .innerJoin(campaigns, eq(campaigns.id, campaignLeads.campaignId))
-        .where(eq(contacts.businessId, businessId))
-        .orderBy(desc(emailsSent.sentAt))
-        .limit(50)
-    : [];
+  // Sent-mails altijd ophalen — ook businesses zonder contacts of
+  // zonder verzonden mails krijgen de sectie te zien, met een lege-
+  // staat-melding. Dat maakt direct zichtbaar dat er (nog) niks is
+  // verzonden i.p.v. de sectie stilletjes te verbergen.
+  const lastSent = await db
+    .select({
+      id: emailsSent.id,
+      sentAt: emailsSent.sentAt,
+      subject: emailsSent.subject,
+      bounced: emailsSent.bounced,
+      openedAt: emailsSent.openedAt,
+      repliedAt: emailsSent.repliedAt,
+      stepOrder: emailsSent.stepOrder,
+      aiGenerated: emailsSent.aiGenerated,
+      contactEmail: contacts.email,
+      campaignName: campaigns.name,
+    })
+    .from(emailsSent)
+    .innerJoin(
+      campaignLeads,
+      eq(campaignLeads.id, emailsSent.campaignLeadId),
+    )
+    .innerJoin(contacts, eq(contacts.id, campaignLeads.contactId))
+    .innerJoin(campaigns, eq(campaigns.id, campaignLeads.campaignId))
+    .where(eq(contacts.businessId, businessId))
+    .orderBy(desc(emailsSent.sentAt))
+    .limit(50);
 
   return (
     <>
@@ -198,71 +200,80 @@ export default async function LeadDetailPage({
 
       <Timeline events={timelineEvents} />
 
-      {lastSent.length > 0 ? (
-        <section style={sectionStyle}>
-          <h2 style={h2Style}>Verzendgeschiedenis ({lastSent.length})</h2>
-          <p style={{ opacity: 0.55, fontSize: "0.8rem", margin: "0 0 0.75rem 0" }}>
-            Klik op het onderwerp om de volledige inhoud te bekijken.
+      <section style={sectionStyle}>
+        <h2 style={h2Style}>Verzendgeschiedenis ({lastSent.length})</h2>
+        {lastSent.length === 0 ? (
+          <p style={{ opacity: 0.55, fontSize: "0.85rem", margin: 0 }}>
+            Nog geen mails verstuurd naar deze lead.
+            {contactRows.length === 0
+              ? " (Geen contacten op deze business gevonden — voeg er één toe via Discover of importeer 'm.)"
+              : ""}
           </p>
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Wanneer</th>
-                <th style={thStyle}>Step</th>
-                <th style={thStyle}>Campagne</th>
-                <th style={thStyle}>Naar</th>
-                <th style={thStyle}>Onderwerp</th>
-                <th style={thStyle}>Bron</th>
-                <th style={thStyle}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lastSent.map((s) => (
-                <tr key={s.id}>
-                  <td style={tdStyle}>
-                    {s.sentAt instanceof Date
-                      ? s.sentAt.toLocaleString("nl-NL", {
-                          timeZone: "Europe/Amsterdam",
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })
-                      : String(s.sentAt)}
-                  </td>
-                  <td style={tdStyle}>#{s.stepOrder}</td>
-                  <td style={tdStyle}>{s.campaignName}</td>
-                  <td style={tdStyle}>{s.contactEmail}</td>
-                  <td style={tdStyle}>
-                    <Link
-                      href={`/sent/${s.id}`}
-                      style={{ color: "#7ab8ff", textDecoration: "none" }}
-                    >
-                      {s.subject}
-                    </Link>
-                  </td>
-                  <td style={tdStyle}>
-                    {s.aiGenerated ? (
-                      <Pill tone="ok">AI</Pill>
-                    ) : (
-                      <Pill>template</Pill>
-                    )}
-                  </td>
-                  <td style={tdStyle}>
-                    {s.bounced ? (
-                      <Pill tone="bad">bounced</Pill>
-                    ) : s.repliedAt ? (
-                      <Pill tone="ok">replied</Pill>
-                    ) : s.openedAt ? (
-                      <Pill tone="warn">opened</Pill>
-                    ) : (
-                      <Pill>sent</Pill>
-                    )}
-                  </td>
+        ) : (
+          <>
+            <p style={{ opacity: 0.55, fontSize: "0.8rem", margin: "0 0 0.75rem 0" }}>
+              Klik op het onderwerp om de volledige inhoud te bekijken.
+            </p>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Wanneer</th>
+                  <th style={thStyle}>Step</th>
+                  <th style={thStyle}>Campagne</th>
+                  <th style={thStyle}>Naar</th>
+                  <th style={thStyle}>Onderwerp</th>
+                  <th style={thStyle}>Bron</th>
+                  <th style={thStyle}>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      ) : null}
+              </thead>
+              <tbody>
+                {lastSent.map((s) => (
+                  <tr key={s.id}>
+                    <td style={tdStyle}>
+                      {s.sentAt instanceof Date
+                        ? s.sentAt.toLocaleString("nl-NL", {
+                            timeZone: "Europe/Amsterdam",
+                            dateStyle: "short",
+                            timeStyle: "short",
+                          })
+                        : String(s.sentAt)}
+                    </td>
+                    <td style={tdStyle}>#{s.stepOrder}</td>
+                    <td style={tdStyle}>{s.campaignName}</td>
+                    <td style={tdStyle}>{s.contactEmail}</td>
+                    <td style={tdStyle}>
+                      <Link
+                        href={`/sent/${s.id}`}
+                        style={{ color: "#7ab8ff", textDecoration: "none" }}
+                      >
+                        {s.subject}
+                      </Link>
+                    </td>
+                    <td style={tdStyle}>
+                      {s.aiGenerated ? (
+                        <Pill tone="ok">AI</Pill>
+                      ) : (
+                        <Pill>template</Pill>
+                      )}
+                    </td>
+                    <td style={tdStyle}>
+                      {s.bounced ? (
+                        <Pill tone="bad">bounced</Pill>
+                      ) : s.repliedAt ? (
+                        <Pill tone="ok">replied</Pill>
+                      ) : s.openedAt ? (
+                        <Pill tone="warn">opened</Pill>
+                      ) : (
+                        <Pill>sent</Pill>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </section>
     </>
   );
 }
