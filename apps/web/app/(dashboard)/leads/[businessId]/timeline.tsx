@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { CSSProperties } from "react";
 import { Pill } from "../../_ui";
 
@@ -91,14 +92,23 @@ function renderPayload(e: TimelineEventView) {
   if (!p) return null;
 
   if (e.type === "mail_sent") {
+    const emailId = p["emailSentId"];
+    const subject = String(p["subject"] ?? "");
     return (
       <div style={detailStyle}>
         Step #{String(p["stepOrder"] ?? "?")} —{" "}
-        <span style={{ fontStyle: "italic" }}>
-          &ldquo;{String(p["subject"] ?? "")}&rdquo;
-        </span>
+        {typeof emailId === "string" && emailId ? (
+          <Link
+            href={`/sent/${emailId}`}
+            style={{ color: "#7ab8ff", textDecoration: "none", fontStyle: "italic" }}
+          >
+            &ldquo;{subject}&rdquo; →
+          </Link>
+        ) : (
+          <span style={{ fontStyle: "italic" }}>&ldquo;{subject}&rdquo;</span>
+        )}
         {p["aiGenerated"] ? (
-          <span style={{ marginLeft: "0.5rem", opacity: 0.55 }}>· AI-geschreven</span>
+          <span style={aiBadgeStyle}>AI</span>
         ) : null}
       </div>
     );
@@ -238,4 +248,15 @@ const detailStyle: CSSProperties = {
   fontSize: "0.85rem",
   opacity: 0.85,
   lineHeight: 1.4,
+};
+
+const aiBadgeStyle: CSSProperties = {
+  marginLeft: "0.5rem",
+  background: "#1e3a2c",
+  color: "#7be0a6",
+  fontSize: "0.65rem",
+  fontWeight: 600,
+  padding: "0.05rem 0.4rem",
+  borderRadius: "4px",
+  letterSpacing: "0.05em",
 };

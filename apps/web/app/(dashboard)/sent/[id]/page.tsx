@@ -32,6 +32,7 @@ export default async function SentDetailPage({
       openedAt: emailsSent.openedAt,
       repliedAt: emailsSent.repliedAt,
       messageId: emailsSent.messageId,
+      aiGenerated: emailsSent.aiGenerated,
       email: contacts.email,
       firstName: contacts.firstName,
       businessId: businesses.id,
@@ -118,6 +119,15 @@ export default async function SentDetailPage({
 
           <dt style={dtStyle}>Campagne</dt>
           <dd style={ddStyle}>{row.campaignName}</dd>
+
+          <dt style={dtStyle}>Bron</dt>
+          <dd style={ddStyle}>
+            {row.aiGenerated ? (
+              <Pill tone="ok">AI-geschreven</Pill>
+            ) : (
+              <Pill>sequence-template</Pill>
+            )}
+          </dd>
 
           {row.messageId ? (
             <>

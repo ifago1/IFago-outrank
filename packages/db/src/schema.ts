@@ -190,6 +190,12 @@ export const emailsSent = pgTable("emails_sent", {
   openedAt: timestamp("opened_at", { withTimezone: true }),
   repliedAt: timestamp("replied_at", { withTimezone: true }),
   bounced: boolean("bounced").notNull().default(false),
+  /**
+   * True wanneer de inhoud door Claude geschreven is (i.p.v. via het
+   * sequence-template). Zichtbaar als badge in /sent/<id> en de
+   * verzendgeschiedenis per lead.
+   */
+  aiGenerated: boolean("ai_generated").notNull().default(false),
 });
 
 /**

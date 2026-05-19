@@ -350,20 +350,26 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
         },
       });
 
-      await cfg.db.insert(emailsSent).values({
-        campaignLeadId: row.campaignLeadId,
-        stepOrder: stepDef.stepOrder,
-        ...(variant ? { variantId: variant.id } : {}),
-        subject,
-        body,
-        messageId: result.messageId,
-      });
+      const insertedSent = await cfg.db
+        .insert(emailsSent)
+        .values({
+          campaignLeadId: row.campaignLeadId,
+          stepOrder: stepDef.stepOrder,
+          ...(variant ? { variantId: variant.id } : {}),
+          subject,
+          body,
+          messageId: result.messageId,
+          aiGenerated: ai !== null,
+        })
+        .returning({ id: emailsSent.id });
+      const emailSentId = insertedSent[0]?.id ?? null;
 
       await logLeadEvent(cfg.db, {
         businessId: row.businessId,
         type: "mail_sent",
         source: "mail",
         payload: {
+          emailSentId,
           stepOrder: stepDef.stepOrder,
           subject,
           messageId: result.messageId,

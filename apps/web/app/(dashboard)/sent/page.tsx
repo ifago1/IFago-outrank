@@ -24,6 +24,7 @@ export default async function SentPage() {
       bounced: emailsSent.bounced,
       repliedAt: emailsSent.repliedAt,
       openedAt: emailsSent.openedAt,
+      aiGenerated: emailsSent.aiGenerated,
       email: contacts.email,
       firstName: contacts.firstName,
       businessName: businesses.name,
@@ -49,10 +50,11 @@ export default async function SentPage() {
           "Verzonden",
           "Step",
           "Status",
+          "Bron",
           "Recipient",
           "Business",
           "Campaign",
-          "Subject",
+          "Onderwerp",
         ]}
         rows={rows.map((r) => [
           new Date(r.sentAt).toLocaleString("nl-NL", {
@@ -65,6 +67,11 @@ export default async function SentPage() {
             repliedAt={r.repliedAt}
             openedAt={r.openedAt}
           />,
+          r.aiGenerated ? (
+            <Pill key="ai" tone="ok">AI</Pill>
+          ) : (
+            <Pill key="ai">template</Pill>
+          ),
           `${r.firstName ? r.firstName + " — " : ""}${r.email}`,
           <Link
             key="b"
