@@ -26,6 +26,7 @@ export interface CampaignOption {
 }
 
 interface SearchParams {
+  q?: string;
   niche?: string;
   city?: string;
   status?: "any" | "no_website" | "outdated" | "decent" | "good";
@@ -429,6 +430,9 @@ function qualityPill(websiteUrl: string | null, quality: string | null) {
 }
 
 function FilterBar({ params }: { params: SearchParams }) {
+  const hasActive = Boolean(
+    params.q || params.niche || params.city || (params.status && params.status !== "any"),
+  );
   return (
     <form
       method="get"
@@ -437,18 +441,26 @@ function FilterBar({ params }: { params: SearchParams }) {
         gap: "0.5rem",
         marginBottom: "1rem",
         flexWrap: "wrap",
+        alignItems: "center",
       }}
     >
       <input
+        name="q"
+        defaultValue={params.q ?? ""}
+        placeholder="Zoek (naam, stad, categorie, e-mail, telefoon)"
+        style={{ ...inputStyle, minWidth: "320px", flex: "1 1 320px" }}
+        autoFocus
+      />
+      <input
         name="niche"
         defaultValue={params.niche ?? ""}
-        placeholder="Niche (bv. kapper)"
+        placeholder="Niche (exact)"
         style={inputStyle}
       />
       <input
         name="city"
         defaultValue={params.city ?? ""}
-        placeholder="Stad"
+        placeholder="Stad (exact)"
         style={inputStyle}
       />
       <select name="status" defaultValue={params.status ?? "any"} style={inputStyle}>
@@ -458,7 +470,12 @@ function FilterBar({ params }: { params: SearchParams }) {
         <option value="decent">Decent</option>
         <option value="good">Goed (skip)</option>
       </select>
-      <button type="submit" style={btnStyle}>Filter</button>
+      <button type="submit" style={btnStyle}>Zoek</button>
+      {hasActive ? (
+        <Link href="/leads" style={{ color: "#7ab8ff", fontSize: "0.85rem" }}>
+          Wis
+        </Link>
+      ) : null}
     </form>
   );
 }
