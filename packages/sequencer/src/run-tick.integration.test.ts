@@ -105,6 +105,11 @@ describeIfDb("runSendTick (integration)", () => {
         name: "Test Campaign",
         niche: "kapper",
         status: "active",
+        // De integration tests valideren de send-flow ongeacht
+        // phone-first. Markeer als warm-followup-target zodat de
+        // nieuwe default-filter in fetchDueLeads de campagne niet
+        // wegfiltert.
+        warmFollowupTarget: true,
       })
       .returning();
     await db.insert(sequenceSteps).values([
