@@ -5,6 +5,7 @@ import {
   campaigns,
   contacts,
   emailsSent,
+  getSetting,
   leadEvents,
   logLeadEvent,
   sequenceStepVariants,
@@ -177,7 +178,15 @@ export async function runSendTick(cfg: RunTickConfig): Promise<TickResult> {
     });
   }
 
-  const due = await fetchDueLeads(cfg.db, now, batchSize);
+  // Phone-first mode (default aan): alleen campagnes met
+  // warm_followup_target=true mogen mails sturen. Voorkomt dat
+  // handmatig toegewezen / auto-assigned leads zonder bel-context
+  // alsnog een eerste mail krijgen. Setting OUTREACH_PHONE_FIRST
+  // kan op "false" om de oude cold-flow weer aan te zetten.
+  const phoneFirstSetting = await getSetting(cfg.db, "OUTREACH_PHONE_FIRST");
+  const phoneFirstOnly = phoneFirstSetting !== "false";
+
+  const due = await fetchDueLeads(cfg.db, now, batchSize, phoneFirstOnly);
   const unsubscribed = await fetchUnsubscribed(cfg.db);
   const sentTodayBase = await countSentToday(cfg.db, now, cfg.window.timezone);
 
@@ -433,7 +442,28 @@ async function fetchDueLeads(
   db: Db,
   now: Date,
   limit: number,
+  phoneFirstOnly: boolean,
 ): Promise<DueRow[]> {
+  const conditions = [
+    eq(campaigns.status, "active"),
+    or(
+      eq(campaignLeads.status, "queued"),
+      eq(campaignLeads.status, "sent"),
+    ),
+    or(
+      isNull(campaignLeads.nextSendAt),
+      lte(campaignLeads.nextSendAt, now),
+    ),
+  ];
+  if (phoneFirstOnly) {
+    // Alleen campagnes die expliciet als warm-followup-target zijn
+    // gemarkeerd mogen senden. Dit is de fail-safe tegen
+    // cold-mails-die-er-niet-uit-mogen — zelfs als iemand per
+    // ongeluk een normale campagne toewijst aan een lead, gaat
+    // er niks de deur uit zonder telefonische opwarming.
+    conditions.push(eq(campaigns.warmFollowupTarget, true));
+  }
+
   return db
     .select({
       campaignLeadId: campaignLeads.id,
@@ -461,19 +491,7 @@ async function fetchDueLeads(
     .innerJoin(contacts, eq(contacts.id, campaignLeads.contactId))
     .innerJoin(businesses, eq(businesses.id, contacts.businessId))
     .innerJoin(campaigns, eq(campaigns.id, campaignLeads.campaignId))
-    .where(
-      and(
-        eq(campaigns.status, "active"),
-        or(
-          eq(campaignLeads.status, "queued"),
-          eq(campaignLeads.status, "sent"),
-        ),
-        or(
-          isNull(campaignLeads.nextSendAt),
-          lte(campaignLeads.nextSendAt, now),
-        ),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(asc(campaignLeads.nextSendAt))
     .limit(limit);
 }

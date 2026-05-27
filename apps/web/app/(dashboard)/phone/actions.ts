@@ -153,7 +153,20 @@ export async function setPhoneStatus(
   } else if (status === "interested") {
     // Warm-followup: zoek een campagne met warm_followup_target=true
     // en hang daar één contact onder. Eerste non-DNC contact wint.
-    warmFollowupAssigned = await assignToWarmFollowup(db, businessId, now);
+    // mailSendAt-input (datetime-local) bepaalt wanneer de eerste
+    // mail uitgaat — default = nu. Form-veld leeg = direct.
+    const rawMailSendAt = String(form.get("mailSendAt") ?? "").trim();
+    let mailSendAt = now;
+    if (rawMailSendAt) {
+      const d = new Date(rawMailSendAt);
+      if (!Number.isNaN(d.getTime())) mailSendAt = d;
+    }
+    warmFollowupAssigned = await assignToWarmFollowup(
+      db,
+      businessId,
+      now,
+      mailSendAt,
+    );
   }
 
   await logLeadEvent(db, {
@@ -183,8 +196,14 @@ export async function setPhoneStatus(
     sideParts.push("contacts op DNC");
     if (skippedLeads > 0) sideParts.push(`${skippedLeads} campaign-lead(s) skipped`);
   }
-  if (status === "interested" && warmFollowupAssigned > 0) {
-    sideParts.push("toegevoegd aan warm-followup campagne");
+  if (status === "interested") {
+    if (warmFollowupAssigned > 0) {
+      sideParts.push("warm-followup campagne ingepland");
+    } else {
+      sideParts.push(
+        "let op: geen actieve warm-followup campagne — markeer er één in /campaigns",
+      );
+    }
   }
   if (nextAttempt) {
     sideParts.push(
@@ -208,6 +227,7 @@ async function assignToWarmFollowup(
   db: ReturnType<typeof getDb>,
   businessId: string,
   now: Date,
+  mailSendAt: Date,
 ): Promise<number> {
   const target = await db
     .select({ id: campaigns.id })
@@ -235,6 +255,9 @@ async function assignToWarmFollowup(
   if (cRows.length === 0) return 0;
   const contactId = cRows[0]!.id;
 
+  // Upsert: bestaand campaign_lead krijgt de nieuwe nextSendAt + reset
+  // naar queued zodat een herhaalde "interesse" markering 'm opnieuw
+  // op de planning zet i.p.v. silent te negeren.
   const inserted = await db
     .insert(campaignLeads)
     .values({
@@ -242,11 +265,16 @@ async function assignToWarmFollowup(
       contactId,
       status: "queued",
       currentStep: 0,
-      nextSendAt: now,
+      nextSendAt: mailSendAt,
       lastEventAt: now,
     })
-    .onConflictDoNothing({
+    .onConflictDoUpdate({
       target: [campaignLeads.campaignId, campaignLeads.contactId],
+      set: {
+        status: "queued",
+        nextSendAt: mailSendAt,
+        lastEventAt: now,
+      },
     })
     .returning({ id: campaignLeads.id });
 
@@ -255,7 +283,11 @@ async function assignToWarmFollowup(
       businessId,
       type: "auto_assigned",
       source: "system",
-      payload: { campaignId, reason: "warm_followup_after_interested" },
+      payload: {
+        campaignId,
+        reason: "warm_followup_after_interested",
+        mailSendAt: mailSendAt.toISOString(),
+      },
     });
   }
 

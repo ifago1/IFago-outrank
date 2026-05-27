@@ -151,6 +151,20 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    title: "Outreach-modus",
+    description:
+      'Phone-first: cold mails staan UIT. Mails gaan alleen uit naar leads waar je telefonisch "interesse" hebt gemarkeerd, via de warm-followup campagne. Zet op "false" om de oude cold-mail flow weer toe te staan.',
+    fields: [
+      {
+        key: "OUTREACH_PHONE_FIRST",
+        label: 'Phone-first modus (default "true")',
+        type: "text",
+        placeholder: "true",
+        hint: 'Letterlijk "true" of "false". Bij leeg/true: alleen warm-followup campagnes sturen. Bij "false": alle actieve campagnes.',
+      },
+    ],
+  },
+  {
     title: "Verzendlimieten",
     description:
       "Mails worden alleen verzonden binnen het venster, met daglimiet. Warmup-ramp bouwt de daglimiet langzaam op zodat je sender reputation niet beschadigt.",

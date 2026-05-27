@@ -47,6 +47,8 @@ export const SETTING_KEYS = [
   "BOUNCE_WINDOW",
   "BOUNCE_MIN_SENT",
   "TICK_BATCH_SIZE",
+  // Outreach-mode
+  "OUTREACH_PHONE_FIRST",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];

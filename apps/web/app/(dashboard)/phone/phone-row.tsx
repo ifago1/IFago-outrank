@@ -22,6 +22,9 @@ export function PhoneRow({ row }: { row: PhoneLeadRow }) {
   const [draftCallback, setDraftCallback] = useState(
     defaultCallbackInput(row.phoneNextAttemptAt),
   );
+  // Wanneer de warm-followup mail uitgaat bij status=interested.
+  // Leeg = direct sturen bij de eerstvolgende send-tick.
+  const [draftMailSendAt, setDraftMailSendAt] = useState("");
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
   function save() {
@@ -30,6 +33,9 @@ export function PhoneRow({ row }: { row: PhoneLeadRow }) {
     fd.set("notes", draftNotes);
     if (draftStatus === "callback" && draftCallback) {
       fd.set("nextAttemptAt", new Date(draftCallback).toISOString());
+    }
+    if (draftStatus === "interested" && draftMailSendAt) {
+      fd.set("mailSendAt", new Date(draftMailSendAt).toISOString());
     }
     startTransition(async () => {
       const r = await setPhoneStatus(row.businessId, fd);
@@ -179,10 +185,25 @@ export function PhoneRow({ row }: { row: PhoneLeadRow }) {
               </div>
             ) : null}
             {draftStatus === "interested" ? (
-              <div style={{ fontSize: "0.7rem", color: "#7be0a6" }}>
-                Wordt automatisch toegevoegd aan de warm-followup campagne
-                (mits ingesteld).
-              </div>
+              <>
+                <label style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                  <span style={{ fontSize: "0.75rem", opacity: 0.65 }}>
+                    Wanneer eerste warm-up mail versturen?
+                    <span style={{ opacity: 0.5 }}> (leeg = direct)</span>
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={draftMailSendAt}
+                    onChange={(e) => setDraftMailSendAt(e.target.value)}
+                    style={selectStyle}
+                  />
+                </label>
+                <div style={{ fontSize: "0.7rem", color: "#7be0a6" }}>
+                  Lead wordt op de gekozen datum aan de warm-followup
+                  campagne toegevoegd. Notitie hieronder wordt door
+                  Claude meegenomen in de mail.
+                </div>
+              </>
             ) : null}
             <textarea
               value={draftNotes}
