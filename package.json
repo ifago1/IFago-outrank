@@ -1,0 +1,52 @@
+{
+  "name": "outreach-tool",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @outreach/web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @outreach/db generate",
+    "db:migrate": "pnpm --filter @outreach/db migrate",
+    "db:studio": "pnpm --filter @outreach/db studio",
+    "discover": "tsx scripts/discover.ts",
+    "refresh-places": "tsx scripts/refresh-places.ts",
+    "enrich": "tsx scripts/enrich.ts",
+    "score-websites": "tsx scripts/score-websites.ts",
+    "seed-campaign": "tsx scripts/seed-campaign.ts",
+    "assign-leads": "tsx scripts/assign-leads.ts",
+    "auto-assign": "tsx scripts/auto-assign.ts",
+    "send-tick": "tsx scripts/send-tick.ts",
+    "worker": "tsx scripts/worker.ts",
+    "schedule-ticks": "tsx scripts/schedule-ticks.ts",
+    "gdpr": "tsx scripts/gdpr.ts",
+    "setup": "tsx scripts/setup.ts"
+  },
+  "dependencies": {
+    "@outreach/ai-personalization": "workspace:*",
+    "@outreach/config": "workspace:*",
+    "@outreach/db": "workspace:*",
+    "@outreach/discovery": "workspace:*",
+    "@outreach/enrichment": "workspace:*",
+    "@outreach/geocoding": "workspace:*",
+    "@outreach/mailer": "workspace:*",
+    "@outreach/places": "workspace:*",
+    "@outreach/queue": "workspace:*",
+    "@outreach/sequencer": "workspace:*",
+    "@outreach/templates": "workspace:*",
+    "@outreach/website-quality": "workspace:*",
+    "drizzle-orm": "^0.36.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1"
+  }
+}
