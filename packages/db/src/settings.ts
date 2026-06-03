@@ -49,6 +49,7 @@ export const SETTING_KEYS = [
   "TICK_BATCH_SIZE",
   // Outreach-mode
   "OUTREACH_PHONE_FIRST",
+  "PHONE_VOICEMAIL_MAX_ATTEMPTS",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];

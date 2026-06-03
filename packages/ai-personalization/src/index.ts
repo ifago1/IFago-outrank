@@ -15,3 +15,6 @@ export type {
   EmailWriterInput,
   EmailWriterResult,
 } from "./email-writer.js";
+
+export { CallPitch } from "./call-pitch.js";
+export type { CallPitchInput, CallPitchOptions } from "./call-pitch.js";

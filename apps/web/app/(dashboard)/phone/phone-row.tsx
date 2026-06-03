@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useState, useTransition, type CSSProperties } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Pill } from "../_ui";
 import { setPhoneStatus } from "./actions";
+import { generateCallPitch, previewWarmFollowupMail } from "./ai-actions";
 import {
   PHONE_STATUSES,
   STATUS_META,
@@ -11,23 +13,85 @@ import {
   type PhoneStatus,
 } from "./types";
 
+/**
+ * Snel-vul chips voor het notitieveld. Klik voegt de label toe als
+ * extra regel (zodat eerdere notities behouden blijven). Consistente
+ * notities helpen Claude in de warm-followup mail.
+ */
+const NOTE_CHIPS = [
+  "Receptie / niet de eigenaar",
+  "Eigenaar afwezig",
+  "Wil offerte",
+  "Concurrent in gebruik",
+  "Doorverbonden",
+  "Bel ik volgende week terug",
+];
+
+const POWER_DIAL_EVENT = "phone:advance";
+
 export function PhoneRow({ row }: { row: PhoneLeadRow }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [draftStatus, setDraftStatus] = useState<PhoneStatus | "">(
     row.phoneStatus ?? "",
   );
   const [draftNotes, setDraftNotes] = useState(row.phoneNotes ?? "");
-  // datetime-local format: "YYYY-MM-DDTHH:MM" in lokale tijd
   const [draftCallback, setDraftCallback] = useState(
     defaultCallbackInput(row.phoneNextAttemptAt),
   );
-  // Wanneer de warm-followup mail uitgaat bij status=interested.
-  // Leeg = direct sturen bij de eerstvolgende send-tick.
   const [draftMailSendAt, setDraftMailSendAt] = useState("");
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
-  function save() {
+  // AI bel-pitch state — pas opgehaald op klik
+  const [pitch, setPitch] = useState<string | null>(null);
+  const [pitchLoading, setPitchLoading] = useState(false);
+  const [pitchError, setPitchError] = useState<string | null>(null);
+
+  // Mail-preview state — alleen relevant bij draftStatus=interested
+  const [mailPreview, setMailPreview] = useState<{
+    subject: string;
+    body: string;
+  } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  async function fetchPitch() {
+    setPitchLoading(true);
+    setPitchError(null);
+    const r = await generateCallPitch(row.businessId);
+    setPitchLoading(false);
+    if (r.ok && r.pitch) setPitch(r.pitch);
+    else setPitchError(r.error ?? "Onbekende fout");
+  }
+
+  async function fetchMailPreview() {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    const r = await previewWarmFollowupMail(row.businessId, draftNotes);
+    setPreviewLoading(false);
+    if (r.ok && r.subject && r.body) {
+      setMailPreview({ subject: r.subject, body: r.body });
+    } else {
+      setPreviewError(r.error ?? "Onbekende fout");
+    }
+  }
+
+  // Power-dial: andere row stuurt een event als 'ie wil dat de
+  // volgende open-row opent. We luisteren alleen als deze rij Open is
+  // (geen status), zodat we niet per ongeluk afgehandelde rijen weer
+  // opengooien.
+  useEffect(() => {
+    if (row.phoneStatus !== null) return;
+    function handler(e: Event) {
+      const detail = (e as CustomEvent<{ targetId: string }>).detail;
+      if (detail.targetId === row.businessId) setOpen(true);
+    }
+    window.addEventListener(POWER_DIAL_EVENT, handler);
+    return () => window.removeEventListener(POWER_DIAL_EVENT, handler);
+  }, [row.businessId, row.phoneStatus]);
+
+  function buildFormData(): FormData {
     const fd = new FormData();
     fd.set("status", draftStatus);
     fd.set("notes", draftNotes);
@@ -37,13 +101,29 @@ export function PhoneRow({ row }: { row: PhoneLeadRow }) {
     if (draftStatus === "interested" && draftMailSendAt) {
       fd.set("mailSendAt", new Date(draftMailSendAt).toISOString());
     }
+    return fd;
+  }
+
+  function save({ advance }: { advance: boolean }) {
     startTransition(async () => {
-      const r = await setPhoneStatus(row.businessId, fd);
-      if (r.ok) {
-        setSavedAt(new Date().toLocaleTimeString("nl-NL"));
-        setOpen(false);
+      const r = await setPhoneStatus(row.businessId, buildFormData());
+      if (!r.ok) return;
+      setSavedAt(new Date().toLocaleTimeString("nl-NL"));
+      setOpen(false);
+      if (advance) {
+        // Triggert na server-state refresh een event dat de volgende
+        // openbare row oppikt. Korte timeout om de revalidate eerst
+        // door React te laten lopen.
+        router.refresh();
+        setTimeout(() => advanceToNextOpen(row.businessId), 200);
       }
     });
+  }
+
+  function appendChip(label: string) {
+    setDraftNotes((cur) =>
+      cur.trim() ? cur.trim() + " · " + label : label,
+    );
   }
 
   function clear() {
@@ -60,7 +140,10 @@ export function PhoneRow({ row }: { row: PhoneLeadRow }) {
   }
 
   return (
-    <tr>
+    <tr
+      data-business-id={row.businessId}
+      data-phone-status={row.phoneStatus ?? ""}
+    >
       <td style={tdStyle}>
         <HeatPill heat={row.heat} />
       </td>
@@ -152,6 +235,22 @@ export function PhoneRow({ row }: { row: PhoneLeadRow }) {
       <td style={tdStyle}>
         {open ? (
           <div style={editorStyle}>
+            <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={fetchPitch}
+                disabled={pitchLoading}
+                style={pitchBtnStyle}
+                title="Claude schrijft een korte bel-opener op basis van de business + audit"
+              >
+                {pitchLoading ? "…" : pitch ? "Nieuwe pitch" : "💡 Bel-pitch"}
+              </button>
+            </div>
+            {pitch ? (
+              <div style={pitchBoxStyle}>{pitch}</div>
+            ) : pitchError ? (
+              <div style={errorBoxStyle}>{pitchError}</div>
+            ) : null}
             <select
               value={draftStatus}
               onChange={(e) => setDraftStatus(e.target.value as PhoneStatus | "")}
@@ -203,8 +302,50 @@ export function PhoneRow({ row }: { row: PhoneLeadRow }) {
                   campagne toegevoegd. Notitie hieronder wordt door
                   Claude meegenomen in de mail.
                 </div>
+                <button
+                  type="button"
+                  onClick={fetchMailPreview}
+                  disabled={previewLoading}
+                  style={pitchBtnStyle}
+                  title="Bekijk wat Claude zou versturen met de huidige notitie"
+                >
+                  {previewLoading
+                    ? "…"
+                    : mailPreview
+                      ? "Regenereer preview"
+                      : "📧 Toon mail-preview"}
+                </button>
+                {mailPreview ? (
+                  <div style={mailPreviewBoxStyle}>
+                    <div style={{ fontWeight: 600, marginBottom: "0.3rem" }}>
+                      <span style={{ opacity: 0.55 }}>Onderwerp:</span>{" "}
+                      {mailPreview.subject}
+                    </div>
+                    <pre style={mailPreviewBodyStyle}>{mailPreview.body}</pre>
+                    <div style={{ fontSize: "0.65rem", opacity: 0.5, marginTop: "0.4rem" }}>
+                      Bij verzending kan Claude een minimaal andere variant
+                      schrijven (temperature). Verfijn je notitie voor
+                      andere accenten.
+                    </div>
+                  </div>
+                ) : previewError ? (
+                  <div style={errorBoxStyle}>{previewError}</div>
+                ) : null}
               </>
             ) : null}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+              {NOTE_CHIPS.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => appendChip(chip)}
+                  style={chipStyle}
+                  title={`Voeg "${chip}" toe aan notitie`}
+                >
+                  + {chip}
+                </button>
+              ))}
+            </div>
             <textarea
               value={draftNotes}
               onChange={(e) => setDraftNotes(e.target.value)}
@@ -215,11 +356,20 @@ export function PhoneRow({ row }: { row: PhoneLeadRow }) {
             <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
               <button
                 type="button"
-                onClick={save}
+                onClick={() => save({ advance: false })}
                 disabled={pending || !draftStatus}
                 style={primaryBtnStyle}
               >
                 {pending ? "…" : "Bewaar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => save({ advance: true })}
+                disabled={pending || !draftStatus}
+                style={primaryAccentBtnStyle}
+                title="Sla op + spring meteen naar de volgende open lead"
+              >
+                {pending ? "…" : "Bewaar + volgende →"}
               </button>
               <button
                 type="button"
@@ -388,6 +538,103 @@ const dangerBtnStyle: CSSProperties = {
   fontSize: "0.8rem",
   cursor: "pointer",
 };
+
+const primaryAccentBtnStyle: CSSProperties = {
+  padding: "0.35rem 0.8rem",
+  background: "#1c7a3a",
+  border: "none",
+  borderRadius: "5px",
+  color: "white",
+  fontSize: "0.8rem",
+  fontWeight: 500,
+  cursor: "pointer",
+};
+
+const chipStyle: CSSProperties = {
+  padding: "0.2rem 0.5rem",
+  background: "#0f1218",
+  border: "1px solid #2a3140",
+  borderRadius: "12px",
+  color: "#8a93a3",
+  fontSize: "0.7rem",
+  cursor: "pointer",
+};
+
+const pitchBtnStyle: CSSProperties = {
+  padding: "0.3rem 0.65rem",
+  background: "#2a1c3a",
+  border: "1px solid #4a3060",
+  borderRadius: "5px",
+  color: "#c79bff",
+  fontSize: "0.75rem",
+  cursor: "pointer",
+};
+
+const pitchBoxStyle: CSSProperties = {
+  background: "#0f0c18",
+  border: "1px solid #2a1c3a",
+  borderRadius: "5px",
+  padding: "0.5rem 0.7rem",
+  fontSize: "0.82rem",
+  lineHeight: 1.45,
+  color: "#d4caf0",
+  fontStyle: "italic",
+};
+
+const errorBoxStyle: CSSProperties = {
+  background: "#3a1414",
+  border: "1px solid #5a2020",
+  borderRadius: "5px",
+  padding: "0.4rem 0.65rem",
+  fontSize: "0.75rem",
+  color: "#ff8888",
+};
+
+const mailPreviewBoxStyle: CSSProperties = {
+  background: "#0a0c11",
+  border: "1px solid #2a3140",
+  borderRadius: "5px",
+  padding: "0.6rem 0.75rem",
+  fontSize: "0.8rem",
+  lineHeight: 1.5,
+  color: "#d4d8e0",
+  maxWidth: "420px",
+};
+
+const mailPreviewBodyStyle: CSSProperties = {
+  margin: 0,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+  fontFamily: "inherit",
+  fontSize: "0.8rem",
+  lineHeight: 1.5,
+};
+
+/**
+ * DOM-walk om de eerstvolgende phone-row te vinden die nog "open" is
+ * (geen phone_status gezet). Triggert een custom event waar die row
+ * naar luistert en zichzelf op de edit-modus zet.
+ */
+function advanceToNextOpen(currentBusinessId: string): void {
+  const rows = Array.from(
+    document.querySelectorAll<HTMLTableRowElement>("tr[data-business-id]"),
+  );
+  const currentIdx = rows.findIndex(
+    (r) => r.dataset["businessId"] === currentBusinessId,
+  );
+  const searchStart = currentIdx >= 0 ? currentIdx + 1 : 0;
+  const next =
+    rows.slice(searchStart).find((r) => r.dataset["phoneStatus"] === "") ??
+    // fallback: ook eerder in de lijst zoeken (in case row was removed)
+    rows.find((r) => r.dataset["phoneStatus"] === "");
+  if (!next) return;
+  const id = next.dataset["businessId"];
+  if (!id) return;
+  next.scrollIntoView({ behavior: "smooth", block: "center" });
+  window.dispatchEvent(
+    new CustomEvent("phone:advance", { detail: { targetId: id } }),
+  );
+}
 
 const notesStyle: CSSProperties = {
   marginTop: "0.4rem",

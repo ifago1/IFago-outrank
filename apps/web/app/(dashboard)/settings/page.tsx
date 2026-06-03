@@ -162,6 +162,13 @@ const SECTIONS: Section[] = [
         placeholder: "true",
         hint: 'Letterlijk "true" of "false". Bij leeg/true: alleen warm-followup campagnes sturen. Bij "false": alle actieve campagnes.',
       },
+      {
+        key: "PHONE_VOICEMAIL_MAX_ATTEMPTS",
+        label: "Voicemail max-pogingen (default 3)",
+        type: "number",
+        placeholder: "3",
+        hint: "Na zoveel keer voicemail wordt een lead 'Uitgeput' — verdwijnt uit Open en Gepland, gaat naar de Uitgeput-bucket voor handmatige inspectie.",
+      },
     ],
   },
   {

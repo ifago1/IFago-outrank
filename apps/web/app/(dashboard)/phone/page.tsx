@@ -1,20 +1,24 @@
-import { and, eq, gt, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, gte, gt, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import Link from "next/link";
-import { businesses, getDb } from "@outreach/db";
+import { businesses, getDb, getSetting } from "@outreach/db";
 import { heatScore } from "@outreach/sequencer";
 import { PageHeader } from "../_ui";
 import { PhoneRow } from "./phone-row";
+import { QuietHoursBanner } from "./quiet-hours-banner";
+import { DayStats } from "./day-stats";
 import type { PhoneLeadRow, PhoneStatus } from "./types";
 
 export const dynamic = "force-dynamic";
 
-type Bucket = "open" | "scheduled" | "warm" | "done" | "all";
+type Bucket = "open" | "scheduled" | "warm" | "exhausted" | "done" | "all";
 
 interface SearchParams {
   niche?: string;
   city?: string;
   bucket?: Bucket;
 }
+
+const DEFAULT_VOICEMAIL_MAX = 3;
 
 /**
  * Bellen-tab buckets:
@@ -37,13 +41,19 @@ export default async function PhonePage({
   const db = getDb();
   const now = new Date();
 
+  // Voicemail-uitputting: na N voicemails geldt 'ie als 'exhausted'
+  // (uit de Open-cadence, naar aparte bucket). Setting in /settings,
+  // default 3.
+  const vmMaxStr = await getSetting(db, "PHONE_VOICEMAIL_MAX_ATTEMPTS");
+  const vmMax = parsePositiveInt(vmMaxStr, DEFAULT_VOICEMAIL_MAX);
+
   const where: SQL[] = [];
-  if (bucket !== "done") {
+  if (bucket !== "done" && bucket !== "exhausted") {
     where.push(isNotNull(businesses.phone));
   }
 
   if (bucket === "open") {
-    // Nooit gebeld OF cadence-due
+    // Nooit gebeld OF cadence-due, MAAR niet uitgeput
     where.push(
       or(
         isNull(businesses.phoneStatus),
@@ -52,6 +62,9 @@ export default async function PhonePage({
           lte(businesses.phoneNextAttemptAt, now),
         ),
       )!,
+    );
+    where.push(
+      sql`NOT (${businesses.phoneStatus} = 'voicemail' AND ${businesses.phoneAttempts} >= ${vmMax})`,
     );
     where.push(sql`NOT EXISTS (
       SELECT 1 FROM contacts cc
@@ -67,8 +80,15 @@ export default async function PhonePage({
       sql`${businesses.phoneStatus} IN ('voicemail','callback','called')`,
     );
     where.push(gt(businesses.phoneNextAttemptAt, now));
+    where.push(
+      sql`NOT (${businesses.phoneStatus} = 'voicemail' AND ${businesses.phoneAttempts} >= ${vmMax})`,
+    );
   } else if (bucket === "warm") {
     where.push(eq(businesses.phoneStatus, "interested"));
+  } else if (bucket === "exhausted") {
+    where.push(isNotNull(businesses.phone));
+    where.push(eq(businesses.phoneStatus, "voicemail"));
+    where.push(gte(businesses.phoneAttempts, vmMax));
   } else if (bucket === "done") {
     where.push(sql`${businesses.phoneStatus} IN ('not_interested', 'wrong_number')`);
   }
@@ -142,7 +162,8 @@ export default async function PhonePage({
   // Limit naar 200 in de UI om de tabel hanteerbaar te houden
   const visible = leadRows.slice(0, 200);
 
-  const counts = await getBucketCounts(db, now);
+  const counts = await getBucketCounts(db, now, vmMax);
+  const dayStats = await getTodayStats(db, now);
 
   return (
     <>
@@ -151,6 +172,8 @@ export default async function PhonePage({
         subtitle={subtitleFor(bucket, visible.length)}
       />
 
+      <QuietHoursBanner />
+      <DayStats stats={dayStats} />
       <BucketTabs current={bucket} counts={counts} />
       <FilterBar params={params} bucket={bucket} />
 
@@ -194,10 +217,8 @@ function toIso(v: unknown): string | null {
 async function getBucketCounts(
   db: ReturnType<typeof getDb>,
   now: Date,
+  vmMax: number,
 ): Promise<Record<Bucket, number>> {
-  // postgres-js serialisert Date niet auto in raw sql-templates,
-  // dus geef 'm als ISO-string mee. Postgres cast'd zelf naar
-  // timestamptz.
   const nowIso = now.toISOString();
   const rows = await db
     .select({
@@ -208,6 +229,7 @@ async function getBucketCounts(
             OR (b.phone_status IN ('voicemail','callback','called')
                 AND b.phone_next_attempt_at <= ${nowIso}::timestamptz)
           )
+          AND NOT (b.phone_status = 'voicemail' AND b.phone_attempts >= ${vmMax})
           AND NOT EXISTS (
             SELECT 1 FROM contacts cc
             WHERE cc.business_id = b.id AND cc.do_not_contact = true
@@ -220,9 +242,12 @@ async function getBucketCounts(
       scheduled: sql<number>`(SELECT count(*)::int FROM businesses
         WHERE phone IS NOT NULL
           AND phone_status IN ('voicemail','callback','called')
-          AND phone_next_attempt_at > ${nowIso}::timestamptz)`,
+          AND phone_next_attempt_at > ${nowIso}::timestamptz
+          AND NOT (phone_status = 'voicemail' AND phone_attempts >= ${vmMax}))`,
       warm: sql<number>`(SELECT count(*)::int FROM businesses
         WHERE phone_status = 'interested')`,
+      exhausted: sql<number>`(SELECT count(*)::int FROM businesses
+        WHERE phone_status = 'voicemail' AND phone_attempts >= ${vmMax})`,
       done: sql<number>`(SELECT count(*)::int FROM businesses
         WHERE phone_status IN ('not_interested','wrong_number'))`,
     })
@@ -232,9 +257,66 @@ async function getBucketCounts(
     open: r.open,
     scheduled: r.scheduled,
     warm: r.warm,
+    exhausted: r.exhausted,
     done: r.done,
-    all: r.open + r.scheduled + r.warm + r.done,
+    all: r.open + r.scheduled + r.warm + r.exhausted + r.done,
   };
+}
+
+export interface PhoneDayStats {
+  calls: number;
+  voicemails: number;
+  interested: number;
+  notInterested: number;
+  mailsScheduled: number;
+}
+
+/**
+ * Wat heb je vandaag gedaan? Telt op basis van phone_called_at +
+ * lead_events.auto_assigned. Gebruikt in de DayStats-widget.
+ */
+async function getTodayStats(
+  db: ReturnType<typeof getDb>,
+  now: Date,
+): Promise<PhoneDayStats> {
+  // Begin-van-de-dag in Amsterdam-tijd. We doen 't pragmatisch: lokaal
+  // 00:00 in Europe/Amsterdam, dan naar ISO. Voor één gebruiker met
+  // één tijdzone goed genoeg.
+  const localMidnight = new Date(now);
+  localMidnight.setHours(0, 0, 0, 0);
+  const sinceIso = localMidnight.toISOString();
+  const rows = await db
+    .select({
+      calls: sql<number>`(SELECT count(*)::int FROM businesses
+        WHERE phone_called_at >= ${sinceIso}::timestamptz)`,
+      voicemails: sql<number>`(SELECT count(*)::int FROM businesses
+        WHERE phone_called_at >= ${sinceIso}::timestamptz
+          AND phone_status = 'voicemail')`,
+      interested: sql<number>`(SELECT count(*)::int FROM businesses
+        WHERE phone_called_at >= ${sinceIso}::timestamptz
+          AND phone_status = 'interested')`,
+      notInterested: sql<number>`(SELECT count(*)::int FROM businesses
+        WHERE phone_called_at >= ${sinceIso}::timestamptz
+          AND phone_status IN ('not_interested','wrong_number'))`,
+      mailsScheduled: sql<number>`(SELECT count(*)::int FROM lead_events
+        WHERE type = 'auto_assigned'
+          AND occurred_at >= ${sinceIso}::timestamptz)`,
+    })
+    .from(sql`(SELECT 1) _t`);
+  return rows[0] ?? {
+    calls: 0,
+    voicemails: 0,
+    interested: 0,
+    notInterested: 0,
+    mailsScheduled: 0,
+  };
+}
+
+function parsePositiveInt(v: string | undefined, fallback: number): number {
+  if (!v) return fallback;
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return n;
 }
 
 function subtitleFor(bucket: Bucket, n: number): string {
@@ -244,6 +326,8 @@ function subtitleFor(bucket: Bucket, n: number): string {
     return `${n} leads ingepland voor later. Verschijnen automatisch in Open op de juiste datum.`;
   if (bucket === "warm")
     return `${n} warme leads — interesse getoond. Tijd om af te sluiten.`;
+  if (bucket === "exhausted")
+    return `${n} uitgeputte voicemails — N keer geprobeerd zonder respons. Read-only.`;
   if (bucket === "done") return `${n} afgehandelde leads. Read-only audit.`;
   return `${n} leads totaal`;
 }
@@ -253,6 +337,7 @@ function emptyMessageFor(bucket: Bucket): string {
     return "Geen leads klaar om te bellen — alles is afgehandeld of ingepland.";
   if (bucket === "scheduled") return "Geen leads ingepland.";
   if (bucket === "warm") return "Geen warme leads (nog). Markeer een gesprek als 'interesse'.";
+  if (bucket === "exhausted") return "Niemand opgegeven. Mooi.";
   if (bucket === "done") return "Nog niemand afgehandeld.";
   return "Geen leads gevonden.";
 }
@@ -261,6 +346,7 @@ const BUCKETS: { key: Bucket; label: string }[] = [
   { key: "open", label: "Open" },
   { key: "scheduled", label: "Gepland" },
   { key: "warm", label: "Interesse" },
+  { key: "exhausted", label: "Uitgeput" },
   { key: "done", label: "Afgehandeld" },
   { key: "all", label: "Alles" },
 ];
